@@ -1,0 +1,17 @@
+{
+  "name": "mule-lms",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Enterprise LMS - Frontend and Backend",
+  "scripts": {
+    "postinstall": "npm run install:all",
+    "install:all": "npm install --prefix frontend && npm install --prefix backend",
+    "dev": "npm run dev --prefix frontend",
+    "dev:backend": "npm run start:dev --prefix backend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.98.0"
+  }
+}
