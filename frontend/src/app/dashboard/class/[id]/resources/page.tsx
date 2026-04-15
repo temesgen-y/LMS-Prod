@@ -85,7 +85,7 @@ export default function ClassResourcesPage() {
           type: l.type,
           contentUrl: l.content_url,
           durationMins: l.duration_mins,
-          progressStatus: progressMap[l.id] ?? 'not_started',
+          progressStatus: (progressMap[l.id] ?? 'not_started') as 'completed' | 'in_progress' | 'not_started' | null,
         }))
       );
       setLoading(false);

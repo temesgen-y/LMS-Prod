@@ -62,7 +62,14 @@ export function useGroupMessages(groupId: string | null, userId: string | null) 
 
     if (err) { setError(err.message); setLoading(false); return; }
 
-    const ordered = [...(data ?? [])].reverse() as StudyGroupMessage[];
+    const ordered = [...(data ?? [])].reverse().map((row) => ({
+      ...row,
+      users: Array.isArray(row.users) ? (row.users[0] ?? undefined) : row.users,
+      study_group_attachments: (row.study_group_attachments ?? []).map((a: any) => ({
+        ...a,
+        attachments: Array.isArray(a.attachments) ? (a.attachments[0] ?? undefined) : a.attachments,
+      })),
+    })) as StudyGroupMessage[];
     setMessages(ordered);
     setLoading(false);
     markSeen(groupId);

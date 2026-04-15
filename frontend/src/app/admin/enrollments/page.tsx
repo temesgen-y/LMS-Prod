@@ -214,7 +214,13 @@ export default function EnrollmentsPage() {
       setOfferingsLoading(false);
       return;
     }
-    setOfferings((data ?? []) as OfferingOption[]);
+    setOfferings(
+      (data ?? []).map((row) => ({
+        ...row,
+        courses: Array.isArray(row.courses) ? (row.courses[0] ?? null) : row.courses,
+        academic_terms: Array.isArray(row.academic_terms) ? (row.academic_terms[0] ?? null) : row.academic_terms,
+      })) as OfferingOption[]
+    );
     setOfferingsLoading(false);
   }, []);
 

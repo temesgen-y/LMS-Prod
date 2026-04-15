@@ -43,7 +43,7 @@ export function useStudyGroups(userId: string | null) {
         .order('updated_at', { ascending: false });
 
       if (gErr) { setError(gErr.message); setLoading(false); return; }
-      mine = (groupsData ?? []) as StudyGroup[];
+      mine = (groupsData ?? []) as unknown as StudyGroup[];
     }
     setMyGroups(mine);
 
@@ -85,7 +85,7 @@ export function useStudyGroups(userId: string | null) {
       ...i,
       inviter: i.invited_by ? (inviterMap[i.invited_by] ?? null) : null,
     }));
-    setInvitations(mapped as StudyGroupInvitation[]);
+    setInvitations(mapped as unknown as StudyGroupInvitation[]);
     setLoading(false);
   }, [userId]);
 
