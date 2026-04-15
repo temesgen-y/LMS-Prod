@@ -4,6 +4,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { checkPrerequisites, type PrereqResult } from '@/utils/checkPrerequisites';
+import {
+  approveRegistration,
+  rejectRegistration,
+} from '@/services/registration.service';
 
 type TabStatus = 'all' | 'pending' | 'approved' | 'rejected' | 'under_review' | 'cancelled';
 
@@ -163,32 +167,14 @@ export default function RegistrationsPage() {
     }
     setActionLoading(true);
     try {
-      const supabase = createClient();
-      await supabase.from('registration_requests').update({
-        status: 'approved',
-        reviewed_by: currentUserId,
-        reviewed_at: new Date().toISOString(),
-        prereq_override: hardUnmet.length > 0,
-        override_reason: hardUnmet.length > 0 ? overrideReason : null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', selectedRequest.id);
-
-      // Create enrollment
-      await supabase.from('enrollments').upsert({
-        student_id: selectedRequest.student_id,
-        offering_id: selectedRequest.offering_id,
-        status: 'active',
-        enrollment_date: new Date().toISOString().split('T')[0],
-      }, { onConflict: 'student_id,offering_id' });
-
-      // Notify student
-      await supabase.from('notifications').insert({
-        user_id: selectedRequest.student_id,
-        title: 'Registration Approved',
-        body: `Your registration for ${selectedRequest.course_code} has been approved.`,
-        type: 'registration',
-      });
-
+      await approveRegistration(
+        selectedRequest.id,
+        selectedRequest.student_id,
+        selectedRequest.offering_id,
+        hardUnmet.length > 0,
+        hardUnmet.length > 0 ? overrideReason : '',
+        selectedRequest.course_code,
+      );
       setSelectedRequest(null);
       loadData();
     } catch (e: any) {
@@ -202,22 +188,12 @@ export default function RegistrationsPage() {
     if (!selectedRequest || !rejectNote.trim()) return;
     setActionLoading(true);
     try {
-      const supabase = createClient();
-      await supabase.from('registration_requests').update({
-        status: 'rejected',
-        reviewed_by: currentUserId,
-        reviewed_at: new Date().toISOString(),
-        rejection_note: rejectNote,
-        updated_at: new Date().toISOString(),
-      }).eq('id', selectedRequest.id);
-
-      await supabase.from('notifications').insert({
-        user_id: selectedRequest.student_id,
-        title: 'Registration Rejected',
-        body: `Your registration for ${selectedRequest.course_code} was rejected. Reason: ${rejectNote}`,
-        type: 'registration',
-      });
-
+      await rejectRegistration(
+        selectedRequest.id,
+        selectedRequest.student_id,
+        rejectNote,
+        selectedRequest.course_code,
+      );
       setSelectedRequest(null);
       setShowRejectModal(false);
       loadData();

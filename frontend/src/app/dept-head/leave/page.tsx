@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { getDeptIdForHead } from '@/utils/getDeptForHead';
+import { approveLeave, rejectLeave } from '@/services/leave.service';
 
 interface LeaveRequest {
   id: string;
@@ -133,38 +134,7 @@ export default function DeptHeadLeavePage() {
     if (!approveModal) return;
     setActionLoading(true);
     try {
-      const supabase = createClient();
-      await supabase.from('leave_requests').update({
-        status: 'approved',
-        reviewed_by: currentUserId,
-        reviewed_at: new Date().toISOString(),
-        review_note: approveNote || null,
-        updated_at: new Date().toISOString(),
-      }).eq('id', approveModal.id);
-
-      // Update leave balance
-      const currentYear = new Date().getFullYear();
-      const academicYear = `${currentYear}-${currentYear + 1}`;
-      const { data: balance } = await supabase.from('leave_balances')
-        .select('id, used_days, remaining_days')
-        .eq('user_id', approveModal.requester_id)
-        .eq('academic_year', academicYear)
-        .eq('leave_type', approveModal.leave_type)
-        .maybeSingle();
-
-      if (balance) {
-        const newUsed = (balance as any).used_days + approveModal.total_days;
-        const newRemaining = Math.max(0, (balance as any).remaining_days - approveModal.total_days);
-        await supabase.from('leave_balances').update({ used_days: newUsed, remaining_days: newRemaining, updated_at: new Date().toISOString() }).eq('id', (balance as any).id);
-      }
-
-      await supabase.from('notifications').insert({
-        user_id: approveModal.requester_id,
-        title: 'Leave Request Approved',
-        body: `Your ${approveModal.leave_type} leave request has been approved.${approveNote ? ` Note: ${approveNote}` : ''}`,
-        type: 'leave',
-      });
-
+      await approveLeave(approveModal.id, approveNote);
       setApproveModal(null);
       setApproveNote('');
       loadData();
@@ -179,22 +149,7 @@ export default function DeptHeadLeavePage() {
     if (!rejectModal || !rejectNote.trim()) return;
     setActionLoading(true);
     try {
-      const supabase = createClient();
-      await supabase.from('leave_requests').update({
-        status: 'rejected',
-        reviewed_by: currentUserId,
-        reviewed_at: new Date().toISOString(),
-        review_note: rejectNote,
-        updated_at: new Date().toISOString(),
-      }).eq('id', rejectModal.id);
-
-      await supabase.from('notifications').insert({
-        user_id: rejectModal.requester_id,
-        title: 'Leave Request Rejected',
-        body: `Your ${rejectModal.leave_type} leave request was rejected. Reason: ${rejectNote}`,
-        type: 'leave',
-      });
-
+      await rejectLeave(rejectModal.id, rejectNote);
       setRejectModal(null);
       setRejectNote('');
       loadData();

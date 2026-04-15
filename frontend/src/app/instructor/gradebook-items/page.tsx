@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
-import { upsertGradebookItem } from '@/utils/updateGradebook';
+import { upsertGradebookItem } from '@/services/grading.service';
 
 const PAGE_SIZE = 10;
 
@@ -184,9 +184,9 @@ export default function GradebookItemsPage() {
     const itemId = (form.item_type === 'assessment' ? form.assessment_id : form.assignment_id) as string;
     try {
       await upsertGradebookItem(
-        supabase, form.enrollment_id, itemId, form.item_type,
+        form.enrollment_id, itemId, form.item_type,
         form.raw_score, form.total_marks,
-        currentUserId, form.is_overridden, form.override_note,
+        form.is_overridden, form.override_note,
       );
       toast.success(editing ? 'Gradebook item updated' : 'Gradebook item recorded');
       setShowModal(false);

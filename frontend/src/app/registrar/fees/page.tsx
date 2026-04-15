@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { recordPayment } from '@/services/fees.service';
 
 interface FeeAccount {
   id: string;
@@ -112,28 +113,16 @@ export default function FeesPage() {
     setPaymentLoading(true);
     setPaymentError('');
     try {
-      const supabase = createClient();
-      await supabase.from('payments').insert({
-        student_id: paymentModal.student_id,
-        term_id: paymentModal.term_id,
+      await recordPayment(
+        paymentModal.id,
+        paymentModal.student_id,
+        paymentModal.term_id,
         amount,
-        payment_method: paymentForm.payment_method,
-        reference_no: paymentForm.reference_no || null,
-        notes: paymentForm.notes || null,
-        recorded_by: currentUserId,
-        payment_date: new Date().toISOString().split('T')[0],
-      });
-
-      const newPaid = paymentModal.paid_amount + amount;
-      const newBalance = Math.max(0, paymentModal.total_amount - newPaid);
-      const newStatus = newBalance <= 0 ? 'paid' : newPaid > 0 ? 'partial' : 'unpaid';
-      await supabase.from('student_fee_accounts').update({
-        paid_amount: newPaid,
-        balance: newBalance,
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      }).eq('id', paymentModal.id);
-
+        paymentForm.payment_method,
+        paymentForm.reference_no || null,
+        new Date().toISOString().split('T')[0],
+        paymentForm.notes || null,
+      );
       setPaymentModal(null);
       setPaymentForm({ amount: '', payment_method: 'cash', reference_no: '', notes: '' });
       loadData();

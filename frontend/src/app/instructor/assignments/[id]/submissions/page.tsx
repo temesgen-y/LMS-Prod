@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { updateGradebookItem } from '@/utils/updateGradebook';
+import { upsertGradebookItem } from '@/services/grading.service';
 
 type AssignmentInfo = {
   id: string;
@@ -160,15 +160,12 @@ export default function AssignmentSubmissionsPage() {
 
     // Update grades table + gradebook_items + recalculate final grade
     try {
-      await updateGradebookItem(
-        supabase,
+      await upsertGradebookItem(
         sub.enrollment_id,
-        sub.student_id,
         assignment.id,
         'assignment',
         scoreNum,
         assignment.max_score,
-        0,
       );
       toast.success(`Grade saved for ${sub.student_name}`);
     } catch (err: any) {

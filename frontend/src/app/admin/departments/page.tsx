@@ -4,7 +4,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { assignDeptHead, removeDeptHead } from '@/utils/promoteDeptHead';
+import {
+  assignDeptHead as assignDeptHeadApi,
+  removeDeptHead as removeDeptHeadApi,
+} from '@/services/departments.service';
 
 type DeptHead = {
   userId: string;
@@ -300,11 +303,9 @@ export default function AdminDepartmentsPage() {
       // Handle dept head assignment
       if (changingDeptHead) {
         if (selectedInstructorId) {
-          const result = await assignDeptHead(supabase, selectedInstructorId, deptId!, adminUserId);
-          if (!result.success) throw new Error(result.error ?? 'Failed to assign department head.');
+          await assignDeptHeadApi(selectedInstructorId, deptId!);
         } else {
-          const result = await removeDeptHead(supabase, deptId!);
-          if (!result.success) throw new Error(result.error ?? 'Failed to remove department head.');
+          await removeDeptHeadApi(deptId!);
         }
       }
 

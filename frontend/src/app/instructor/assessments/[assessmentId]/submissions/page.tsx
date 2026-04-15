@@ -5,7 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { updateGradebookItem } from '@/utils/updateGradebook';
+import { upsertGradebookItem } from '@/services/grading.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -366,7 +366,7 @@ export default function AssessmentSubmissionsPage() {
     }
 
     // Sync to gradebook
-    await updateGradebookItem(supabase, att.enrollmentId, att.studentId, info.id, 'assessment', raw, info.total_marks, 0);
+    await upsertGradebookItem(att.enrollmentId, info.id, 'assessment', raw, info.total_marks);
 
     toast.success(`Grade saved: ${raw}/${info.total_marks}`);
     setAttempts(prev => prev.map(a =>

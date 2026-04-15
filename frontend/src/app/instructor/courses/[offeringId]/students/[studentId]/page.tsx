@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
-import { updateGradebookItem } from '@/utils/updateGradebook';
+import { upsertGradebookItem } from '@/services/grading.service';
 import { getGradeColor } from '@/utils/gradeCalculator';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -442,7 +442,7 @@ export default function StudentDetailPage() {
     }
 
     if (student) {
-      await updateGradebookItem(supabase, student.enrollmentId, studentId, att.assessmentId, 'assessment', raw, att.totalMarks, 0);
+      await upsertGradebookItem(student.enrollmentId, att.assessmentId, 'assessment', raw, att.totalMarks);
       const { data: freshEnroll } = await supabase.from('enrollments').select('final_score, final_grade').eq('id', student.enrollmentId).maybeSingle();
       if (freshEnroll) setStudent(prev => prev ? { ...prev, finalScore: (freshEnroll as any).final_score, finalGrade: (freshEnroll as any).final_grade } : prev);
     }
@@ -502,7 +502,7 @@ export default function StudentDetailPage() {
     }
 
     if (student) {
-      await updateGradebookItem(supabase, student.enrollmentId, studentId, sub.assignmentId, 'assignment', raw, sub.maxScore, 0);
+      await upsertGradebookItem(student.enrollmentId, sub.assignmentId, 'assignment', raw, sub.maxScore);
       const { data: freshEnroll } = await supabase.from('enrollments').select('final_score, final_grade').eq('id', student.enrollmentId).maybeSingle();
       if (freshEnroll) setStudent(prev => prev ? { ...prev, finalScore: (freshEnroll as any).final_score, finalGrade: (freshEnroll as any).final_grade } : prev);
     }
