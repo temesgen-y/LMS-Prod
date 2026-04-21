@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type FeeAccount = {
@@ -15,6 +16,17 @@ type FeeAccount = {
   yearStart   : number | null;
   isCurrent   : boolean;
 };
+
+async function initChapaPayment(feeAccountId: string): Promise<string> {
+  const res = await fetch('/api/payments/chapa/initialize', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feeAccountId }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Payment initialization failed');
+  return data.checkout_url;
+}
 
 type Payment = {
   id            : string;
@@ -61,11 +73,26 @@ function fmtDate(dateStr: string | null): string {
 }
 
 export default function FeeAccountPage() {
+  const router = useRouter();
   const [accounts, setAccounts] = useState<FeeAccount[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [allTermsOpen, setAllTermsOpen] = useState(false);
+  const [payLoading, setPayLoading] = useState(false);
+  const [payError, setPayError] = useState('');
+
+  const handleChapaPay = async (accountId: string) => {
+    setPayLoading(true);
+    setPayError('');
+    try {
+      const checkoutUrl = await initChapaPayment(accountId);
+      window.location.href = checkoutUrl;
+    } catch (e: any) {
+      setPayError(e.message ?? 'Could not start payment');
+      setPayLoading(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -220,10 +247,40 @@ export default function FeeAccountPage() {
             {currentAccount.dueDate && (
               <p className="text-xs text-gray-500 mt-2">Due: {fmtDate(currentAccount.dueDate)}</p>
             )}
+
+            {/* Pay with Chapa button */}
+            {currentAccount.balance > 0 && currentAccount.status !== 'paid' && currentAccount.status !== 'waived' && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                {payError && (
+                  <p className="text-xs text-red-600 mb-2">{payError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleChapaPay(currentAccount.id)}
+                  disabled={payLoading}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0ea5e9] hover:bg-[#0284c7] disabled:opacity-60 text-white rounded-lg text-sm font-semibold transition-colors"
+                >
+                  {payLoading ? (
+                    <>
+                      <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                      Redirecting to Chapa…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                      </svg>
+                      Pay ETB {currentAccount.balance.toLocaleString()} with Chapa
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400 text-sm">
-            No fee account found for the current term.
+          <div className="bg-white border border-gray-200 rounded-xl p-8 text-center space-y-2">
+            <p className="text-gray-500 font-medium">No fee account assigned yet</p>
+            <p className="text-sm text-gray-400">Your fee account will appear here once the Registrar Office assigns it. Please contact the Registrar if you believe this is an error.</p>
           </div>
         )}
 
