@@ -60,6 +60,10 @@ export default function AdminInstructorsPage() {
   const [removeTarget, setRemoveTarget] = useState<Instructor | null>(null);
   const [removing, setRemoving] = useState(false);
 
+  // Delete instructor confirm
+  const [deleteTarget, setDeleteTarget] = useState<Instructor | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const fetchDepartments = useCallback(async () => {
     const supabase = createClient();
     const { data } = await supabase.from('departments').select('id, name').eq('is_active', true).order('name');
@@ -239,6 +243,30 @@ export default function AdminInstructorsPage() {
     finally { setAssigning(false); }
   };
 
+  // Delete instructor entirely
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const supabaseClient = createClient();
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      const res = await fetch('/api/admin/instructors/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { 'Authorization': `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ instructorUserId: deleteTarget.userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error(data.error || 'Failed to delete instructor.'); return; }
+      toast.success(`${deleteTarget.fullName} has been deleted.`);
+      setDeleteTarget(null);
+      fetchInstructors();
+    } catch { toast.error('Something went wrong.'); }
+    finally { setDeleting(false); }
+  };
+
   // Remove from department
   const handleRemove = async () => {
     if (!removeTarget) return;
@@ -340,10 +368,14 @@ export default function AdminInstructorsPage() {
                       </button>
                       {instr.departmentName !== 'Unassigned' && (
                         <button type="button" onClick={() => setRemoveTarget(instr)}
-                          className="px-3 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100">
-                          Remove
+                          className="px-3 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100">
+                          Unassign
                         </button>
                       )}
+                      <button type="button" onClick={() => setDeleteTarget(instr)}
+                        className="px-3 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100">
+                        Delete
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -513,13 +545,13 @@ export default function AdminInstructorsPage() {
         </>
       )}
 
-      {/* ── Remove Confirm ── */}
+      {/* ── Unassign from Department Confirm ── */}
       {removeTarget && (
         <>
           <div className="fixed inset-0 bg-black/50 z-40" aria-hidden onClick={() => { if (!removing) setRemoveTarget(null); }} />
           <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 p-6"
             role="dialog" aria-modal="true">
-            <h2 className="text-lg font-bold text-gray-900 mb-2">Remove from Department?</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Unassign from Department?</h2>
             <p className="text-sm text-gray-600 mb-6">
               Remove <span className="font-medium">{removeTarget.fullName}</span> from{' '}
               <span className="font-medium">{removeTarget.departmentName}</span>?
@@ -529,8 +561,39 @@ export default function AdminInstructorsPage() {
               <button type="button" onClick={() => setRemoveTarget(null)} disabled={removing}
                 className="px-4 py-2.5 rounded-lg border border-gray-200 bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 disabled:opacity-50">Cancel</button>
               <button type="button" onClick={handleRemove} disabled={removing}
-                className="inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50 min-w-[100px]">
-                {removing ? 'Removing...' : 'Remove'}
+                className="inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-orange-600 text-white font-medium hover:bg-orange-700 disabled:opacity-50 min-w-[100px]">
+                {removing ? 'Removing...' : 'Unassign'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Delete Instructor Confirm ── */}
+      {deleteTarget && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" aria-hidden onClick={() => { if (!deleting) setDeleteTarget(null); }} />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-sm bg-white rounded-xl shadow-xl border border-gray-200 p-6"
+            role="dialog" aria-modal="true">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h2 className="text-lg font-bold text-gray-900">Delete Instructor?</h2>
+            </div>
+            <p className="text-sm text-gray-600 mb-2">
+              This will permanently delete <span className="font-semibold">{deleteTarget.fullName}</span> ({deleteTarget.email}).
+            </p>
+            <p className="text-sm text-red-600 font-medium mb-6">This action cannot be undone.</p>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleteTarget(null)} disabled={deleting}
+                className="px-4 py-2.5 rounded-lg border border-gray-200 bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={handleDelete} disabled={deleting}
+                className="inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-red-600 text-white font-medium hover:bg-red-700 disabled:opacity-50 min-w-[120px]">
+                {deleting ? 'Deleting...' : 'Delete Instructor'}
               </button>
             </div>
           </div>
