@@ -361,19 +361,24 @@ export default function AdminInstructorsPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3">
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      {/* Slot 1: Assign/Reassign — fixed width */}
                       <button type="button" onClick={() => openAssign(instr)}
-                        className="px-3 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100">
+                        className="w-[82px] px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-700 hover:bg-purple-100 text-center">
                         {instr.departmentName === 'Unassigned' ? 'Assign Dept' : 'Reassign'}
                       </button>
-                      {instr.departmentName !== 'Unassigned' && (
-                        <button type="button" onClick={() => setRemoveTarget(instr)}
-                          className="px-3 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100">
-                          Unassign
-                        </button>
-                      )}
+                      {/* Slot 2: Unassign — fixed width placeholder keeps Delete aligned */}
+                      <div className="w-[68px]">
+                        {instr.departmentName !== 'Unassigned' && (
+                          <button type="button" onClick={() => setRemoveTarget(instr)}
+                            className="w-full px-2 py-1 rounded text-xs font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 text-center">
+                            Unassign
+                          </button>
+                        )}
+                      </div>
+                      {/* Slot 3: Delete — always in the same column */}
                       <button type="button" onClick={() => setDeleteTarget(instr)}
-                        className="px-3 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100">
+                        className="w-[56px] px-2 py-1 rounded text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 text-center">
                         Delete
                       </button>
                     </div>
