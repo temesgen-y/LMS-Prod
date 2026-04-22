@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
   // 3. Validate the invite token
   const { data: invite, error: inviteError } = await admin
     .from('instructor_invites')
-    .select('id, email, auth_user_id, used, expires_at')
+    .select('id, email, auth_user_id, used, expires_at, invited_by')
     .eq('token', token)
     .maybeSingle();
 
@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     auth_user_id: string | null;
     used: boolean;
     expires_at: string;
+    invited_by: string | null;
   };
 
   if (inv.used) {
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
     .update({ used: true, used_at: new Date().toISOString() })
     .eq('id', inv.id);
 
-  // 9. Audit log (best-effort, don't fail the request if this errors)
+  // 9. Audit log (best-effort)
   try {
     await admin.from('audit_logs').insert({
       action: 'instructor_password_set',
@@ -152,6 +153,52 @@ export async function POST(request: NextRequest) {
       metadata: { email: inv.email },
     });
   } catch { /* non-critical */ }
+
+  // 10. Recovery: ensure public.users row exists.
+  // If the invite was sent before the role-casing fix, the upsert in the
+  // invite API may have failed silently (DB check constraint rejects uppercase
+  // 'INSTRUCTOR'/'ACTIVE'). Without a users row, the login role-check fails
+  // and the instructor cannot sign in. Create it now if missing.
+  try {
+    const { data: existingAppUser } = await admin
+      .from('users')
+      .select('id')
+      .eq('auth_user_id', authUserId)
+      .maybeSingle();
+
+    if (!existingAppUser) {
+      // Get first/last name from Supabase Auth metadata (stored during inviteUserByEmail)
+      const { data: { user: supaUser } } = await admin.auth.admin.getUserById(authUserId);
+      const meta = (supaUser?.user_metadata ?? {}) as Record<string, string>;
+
+      const { data: newUser } = await admin
+        .from('users')
+        .insert({
+          auth_user_id: authUserId,
+          email: inv.email,
+          first_name: meta.first_name ?? '',
+          last_name: meta.last_name ?? '',
+          role: 'instructor',
+          status: 'active',
+          created_by: inv.invited_by ?? null,
+        })
+        .select('id')
+        .single();
+
+      // Also create a minimal instructor_profiles row so the dashboard loads
+      if (newUser) {
+        try {
+          await admin.from('instructor_profiles').insert({
+            user_id: (newUser as { id: string }).id,
+            created_by: inv.invited_by ?? null,
+          });
+        } catch { /* non-critical — admin can assign department later */ }
+      }
+    }
+  } catch (recoveryErr) {
+    // Log but don't fail — password was set successfully
+    console.error('[set-password] Recovery upsert error:', recoveryErr);
+  }
 
   return NextResponse.json({ success: true, email: inv.email });
 }

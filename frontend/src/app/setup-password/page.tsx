@@ -146,16 +146,17 @@ function SetupPasswordContent() {
       });
 
       if (signInError) {
-        // Password was set successfully; just redirect to login to complete sign-in manually
+        // Password was set successfully; redirect to login so the instructor
+        // can sign in manually (hard navigation flushes session cookies).
         toast.success('Password set! Please sign in with your new password.');
-        router.push('/login?message=password-set');
+        window.location.href = '/login?message=password-set';
         return;
       }
 
       toast.success('Password set! Welcome to MULE LMS.');
       setPage({ status: 'success' });
-      router.push('/instructor/dashboard');
-      router.refresh();
+      // Hard navigation ensures server-side layout reads the fresh session cookies.
+      window.location.href = '/instructor/dashboard';
     } catch {
       setSubmitError('An unexpected error occurred. Please try again.');
       setSubmitting(false);
