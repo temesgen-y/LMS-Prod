@@ -60,23 +60,38 @@ function validateBody(body: unknown): { ok: true; data: InviteInstructorBody } |
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user: authUser },
-      error: sessionError,
-    } = await supabase.auth.getUser();
+    // Prefer the Bearer token from the Authorization header (more reliable in
+    // Next.js 15 Route Handlers than cookie-based session reading). Fall back
+    // to cookie-based auth if no header is present.
+    const admin = createAdminClient();
+    let authUser: import('@supabase/supabase-js').User | null = null;
 
-    if (sessionError || !authUser) {
-      return NextResponse.json({ error: 'You must be signed in to perform this action.' }, { status: 401 });
+    const authHeader = request.headers.get('Authorization');
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+
+    if (bearerToken) {
+      const { data, error } = await admin.auth.getUser(bearerToken);
+      if (error || !data.user) {
+        return NextResponse.json({ error: 'You must be signed in to perform this action.' }, { status: 401 });
+      }
+      authUser = data.user;
+    } else {
+      // Fallback: cookie-based auth
+      const supabase = await createClient();
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        return NextResponse.json({ error: 'You must be signed in to perform this action.' }, { status: 401 });
+      }
+      authUser = data.user;
     }
 
-    const roleNames = await getUserRoleNames(supabase, authUser.id);
+    const roleNames = await getUserRoleNames(admin, authUser.id);
     const role = getHighestRole(roleNames as RoleName[]);
     if (role !== 'ADMIN') {
       return NextResponse.json({ error: 'Only admins can invite instructors.' }, { status: 403 });
     }
 
-    const { data: appUser } = await supabase
+    const { data: appUser } = await admin
       .from('users')
       .select('id')
       .eq('auth_user_id', authUser.id)
@@ -89,8 +104,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validated.error }, { status: 400 });
     }
     const { data } = validated;
-
-    const admin = createAdminClient();
 
     const appOrigin =
       process.env.NEXT_PUBLIC_APP_URL?.trim() ||
@@ -167,8 +180,8 @@ export async function POST(request: NextRequest) {
           email: data.email,
           first_name: data.firstName,
           last_name: data.lastName,
-          role: 'INSTRUCTOR',
-          status: 'ACTIVE',
+          role: 'instructor',
+          status: 'active',
           updated_at: new Date().toISOString(),
           created_by: createdByUserId,
         },

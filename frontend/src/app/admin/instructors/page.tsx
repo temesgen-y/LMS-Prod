@@ -162,9 +162,22 @@ export default function AdminInstructorsPage() {
     const deptName = departments.find(d => d.id === departmentId)?.name ?? departmentId;
     setIsSubmitting(true);
     try {
+      // Get the current session token and pass it explicitly so the API route
+      // can verify the caller even if server-side cookie reading fails.
+      const supabaseClient = createClient();
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      const accessToken = session?.access_token;
+      if (!accessToken) {
+        setSubmitError('Your session has expired. Please sign in again.');
+        setIsSubmitting(false);
+        return;
+      }
       const res = await fetch('/api/admin/instructors/invite', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           firstName, lastName, email,
           department: deptName,
