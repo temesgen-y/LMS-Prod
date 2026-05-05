@@ -29,29 +29,6 @@
   --primary-foreground: 0 0% 100%;
 }
 
-/* Dark mode base */
-.dark {
-  color-scheme: dark;
-}
-
-.dark .announcement-body a { color: #a78bfa; }
-.dark .announcement-body a:hover { color: #c4b5fd; }
-.dark .announcement-body blockquote { border-left-color: #374151; color: #9ca3af; }
-.dark .announcement-body pre,
-.dark .announcement-body code { background: #1f2937; }
-
-/* Dark scrollbar for sidebar */
-.dark .sidebar-scroll { scrollbar-color: #16a34a #1f2937; }
-.dark .sidebar-scroll::-webkit-scrollbar-track { background: #1f2937; }
-.dark .sidebar-scroll::-webkit-scrollbar-thumb { background: #16a34a; }
-
-/* Dark scrollbar for main content */
-.dark .main-content-scroll { scrollbar-color: #374151 #4b5563; }
-.dark .main-content-scroll::-webkit-scrollbar-track { background: #4b5563; }
-.dark .main-content-scroll::-webkit-scrollbar-thumb { background: #374151; border-color: #4b5563; }
-.dark .main-content-scroll::-webkit-scrollbar-button:vertical:decrement,
-.dark .main-content-scroll::-webkit-scrollbar-button:vertical:increment { background-color: #4b5563; }
-
 html,
 body {
   margin: 0;

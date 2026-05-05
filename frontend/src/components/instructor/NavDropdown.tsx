@@ -53,7 +53,7 @@ export default function NavDropdown({ label, items }: NavDropdownProps) {
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-1 w-52 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 z-50 overflow-hidden py-1">
+        <div className="absolute top-full right-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden py-1">
           {items.map(item => (
             <button
               key={item.path}
@@ -64,8 +64,8 @@ export default function NavDropdown({ label, items }: NavDropdownProps) {
               }}
               className={`w-full text-left px-4 py-2.5 text-sm transition-colors ${
                 pathname === item.path
-                  ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 font-medium'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  ? 'bg-purple-50 text-purple-700 font-medium'
+                  : 'text-gray-700 hover:bg-gray-50'
               }`}
             >
               {item.label}
