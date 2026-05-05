@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessageCount } from '@/hooks/useUnreadMessageCount';
 import NavDropdown from '@/components/instructor/NavDropdown';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 type Notif = {
   id: string;
@@ -343,7 +344,7 @@ export default function InstructorLayoutClient({
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-white dark:bg-gray-900">
       {/* Purple top header */}
       <header
         className="sticky top-0 z-50 flex items-center justify-between h-14 px-4 text-white shrink-0"
@@ -423,6 +424,8 @@ export default function InstructorLayoutClient({
 
           <div className="w-px h-6 bg-white/20 mx-1" />
 
+          <ThemeToggle buttonClassName="p-2 rounded hover:bg-white/10 text-white/80" />
+
           <div className="relative">
             <button
               type="button"
@@ -442,29 +445,29 @@ export default function InstructorLayoutClient({
             {notifOpen && (
               <>
                 <div className="fixed inset-0 z-10" aria-hidden onClick={() => setNotifOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-20 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                    <span className="font-semibold text-sm text-gray-900">Notifications</span>
-                    <Link href="/instructor/notifications" onClick={() => setNotifOpen(false)} className="text-xs text-[#4c1d95] hover:underline">
+                <div className="absolute right-0 top-full mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white">Notifications</span>
+                    <Link href="/instructor/notifications" onClick={() => setNotifOpen(false)} className="text-xs text-[#4c1d95] dark:text-purple-400 hover:underline">
                       View all
                     </Link>
                   </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-700">
                     {notifs.length === 0 ? (
-                      <p className="px-4 py-6 text-sm text-gray-400 text-center">No notifications</p>
+                      <p className="px-4 py-6 text-sm text-gray-400 dark:text-gray-500 text-center">No notifications</p>
                     ) : notifs.map(n => (
                       <button
                         key={n.id}
                         type="button"
                         onClick={() => { markRead(n.id); if (n.link) { setNotifOpen(false); router.push(n.link); } }}
-                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${!n.is_read ? 'bg-indigo-50' : ''}`}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!n.is_read ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}
                       >
                         <div className="flex items-start gap-2">
                           {!n.is_read && <span className="mt-1.5 w-2 h-2 rounded-full bg-[#4c1d95] flex-shrink-0" />}
                           <div className={!n.is_read ? '' : 'pl-4'}>
-                            <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>{n.title}</p>
-                            {n.body && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{n.body}</p>}
-                            <p className="text-xs text-gray-400 mt-1">{fmtNotifTime(n.created_at)}</p>
+                            <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{n.title}</p>
+                            {n.body && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{n.body}</p>}
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{fmtNotifTime(n.created_at)}</p>
                           </div>
                         </div>
                       </button>
@@ -502,19 +505,19 @@ export default function InstructorLayoutClient({
             {userMenuOpen && (
               <>
                 <div className="fixed inset-0 z-10" aria-hidden onClick={() => setUserMenuOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 py-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-20 text-gray-900">
-                  <div className="px-4 py-2 text-sm border-b border-gray-100">{user.email}</div>
+                <div className="absolute right-0 top-full mt-1 py-1 w-52 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-20 text-gray-900 dark:text-white">
+                  <div className="px-4 py-2 text-sm border-b border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-300">{user.email}</div>
                   <Link
                     href="/change-password"
                     onClick={() => setUserMenuOpen(false)}
-                    className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     Change Password
                   </Link>
-                  <div className="border-t border-gray-100 my-1" />
+                  <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                   <button
                     type="button"
-                    className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
+                    className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
                     onClick={() => {
                       setUserMenuOpen(false);
                       handleLogout();
@@ -532,24 +535,24 @@ export default function InstructorLayoutClient({
       <div className="flex flex-1 min-h-0">
         {/* Left sidebar */}
         <aside
-          className={`shrink-0 border-r border-gray-200 bg-gray-50/80 flex flex-col transition-[width] duration-200 ${
+          className={`shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-800 flex flex-col transition-[width] duration-200 ${
             sidebarOpen ? 'w-64' : 'w-0 overflow-hidden'
           }`}
           style={sidebarOpen ? { position: 'sticky', top: '3.5rem', height: 'calc(100vh - 3.5rem)', alignSelf: 'flex-start' } : undefined}
         >
           {sidebarOpen && (
             <div className="sidebar-scroll p-4 overflow-y-scroll flex-1">
-              <div className="mb-4 pb-3 border-b border-gray-200">
+              <div className="mb-4 pb-3 border-b border-gray-200 dark:border-gray-700">
                 {courseInfo ? (
                   <>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       {courseInfo.termName || 'Course'}
                     </div>
-                    <div className="text-sm font-medium text-gray-900 mt-0.5">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white mt-0.5">
                       {courseInfo.courseCode || '—'}
                     </div>
-                    <div className="text-sm text-gray-600">{courseInfo.courseTitle || '—'}</div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-gray-600 dark:text-gray-300">{courseInfo.courseTitle || '—'}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {formatDateRange(courseInfo.startDate, courseInfo.endDate)}
                       {courseInfo.enrolledCount > 0 && (
                         <> · {courseInfo.enrolledCount} {courseInfo.enrolledCount === 1 ? 'Student' : 'Students'}</>
@@ -557,16 +560,16 @@ export default function InstructorLayoutClient({
                     </div>
                   </>
                 ) : (
-                  <div className="text-xs text-gray-400 italic">No course assigned</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 italic">No course assigned</div>
                 )}
               </div>
-              <div className="text-xs text-gray-500 mb-3">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-3">
                 {new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
               </div>
               <nav className="space-y-4">
                 {buildNavGroups(courseInfo?.offeringId ?? null).map(group => (
                   <div key={group.label}>
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest px-3 mb-1">
+                    <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest px-3 mb-1">
                       {group.label}
                     </div>
                     <div className="space-y-0.5">
@@ -591,7 +594,7 @@ export default function InstructorLayoutClient({
                             key={item.href}
                             href={item.href}
                             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
-                              isActive ? 'bg-primary/10 text-primary font-medium' : 'text-gray-700 hover:bg-gray-200/80'
+                              isActive ? 'bg-primary/10 text-primary font-medium' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200/80 dark:hover:bg-gray-700/60'
                             }`}
                           >
                             <NavIcon name={item.icon} />
@@ -609,7 +612,7 @@ export default function InstructorLayoutClient({
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 overflow-auto bg-white">
+        <main className="flex-1 min-w-0 overflow-auto bg-white dark:bg-gray-900">
           {children}
         </main>
       </div>

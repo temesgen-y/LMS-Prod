@@ -7,6 +7,7 @@ import { ClassSidebarProvider, useClassSidebar } from './ClassSidebarContext';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessageCount } from '@/hooks/useUnreadMessageCount';
 import { useUnreadGroups } from '@/hooks/useUnreadGroups';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export type DashboardUser = { id: string; name: string; email: string; role: string };
 
@@ -247,10 +248,10 @@ function InnerLayout({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-50 bg-[#4c1d95] border-b border-[#5b21b6]">
+      <header className="sticky top-0 z-50 bg-[#4c1d95] dark:bg-[#3b0f7e] border-b border-[#5b21b6]">
         <div className="flex items-center h-14 px-3 gap-2">
 
           {/* Left: hamburger + logo + nav buttons */}
@@ -335,29 +336,29 @@ function InnerLayout({
               </button>
 
               {notifOpen && (
-                <div className="absolute right-0 top-full mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl z-50 overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                    <span className="font-semibold text-sm text-gray-900">Notifications</span>
-                    <Link href="/dashboard/notifications" onClick={closeAll} className="text-xs text-[#4c1d95] hover:underline">
+                <div className="absolute right-0 top-full mt-1 w-80 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white">Notifications</span>
+                    <Link href="/dashboard/notifications" onClick={closeAll} className="text-xs text-[#4c1d95] dark:text-violet-400 hover:underline">
                       View all
                     </Link>
                   </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-50">
+                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-50 dark:divide-gray-700">
                     {notifs.length === 0 ? (
-                      <p className="px-4 py-6 text-sm text-gray-400 text-center">No notifications</p>
+                      <p className="px-4 py-6 text-sm text-gray-400 dark:text-gray-500 text-center">No notifications</p>
                     ) : notifs.map(n => (
                       <button
                         key={n.id}
                         type="button"
                         onClick={() => { markRead(n.id); if (n.link) { closeAll(); router.push(n.link); } }}
-                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${!n.is_read ? 'bg-indigo-50' : ''}`}
+                        className={`w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${!n.is_read ? 'bg-indigo-50 dark:bg-indigo-900/20' : ''}`}
                       >
                         <div className="flex items-start gap-2">
                           {!n.is_read && <span className="mt-1.5 w-2 h-2 rounded-full bg-[#4c1d95] flex-shrink-0" />}
                           <div className={!n.is_read ? '' : 'pl-4'}>
-                            <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>{n.title}</p>
-                            {n.body && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{n.body}</p>}
-                            <p className="text-xs text-gray-400 mt-1">{fmtNotifTime(n.created_at)}</p>
+                            <p className={`text-sm leading-snug ${!n.is_read ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>{n.title}</p>
+                            {n.body && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-1">{n.body}</p>}
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{fmtNotifTime(n.created_at)}</p>
                           </div>
                         </div>
                       </button>
@@ -366,6 +367,9 @@ function InnerLayout({
                 </div>
               )}
             </div>
+
+            {/* Dark mode toggle */}
+            <ThemeToggle buttonClassName="p-2 rounded-full text-white/80 hover:bg-white/10 transition-colors hidden sm:flex items-center justify-center" />
 
             {/* Accessibility icon */}
             <button
@@ -391,9 +395,9 @@ function InnerLayout({
                 </svg>
               </button>
               {helpOpen && (
-                <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
-                  <a href="#" className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">Help & Support</a>
-                  <a href="#" className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">Keyboard Shortcuts</a>
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50">
+                  <a href="#" className="block px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Help & Support</a>
+                  <a href="#" className="block px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Keyboard Shortcuts</a>
                 </div>
               )}
             </div>
@@ -418,21 +422,21 @@ function InnerLayout({
                 </svg>
               </button>
               {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
-                  <div className="px-3 py-2 border-b border-gray-100">
-                    <p className="text-xs font-semibold text-gray-800 truncate">{user.name}</p>
-                    <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50">
+                  <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+                    <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{user.name}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{user.email}</p>
                   </div>
-                  <Link href="/dashboard" onClick={closeAll} className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <Link href="/dashboard" onClick={closeAll} className="block px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
                     My Dashboard
                   </Link>
-                  <Link href="/change-password" onClick={closeAll} className="block px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+                  <Link href="/change-password" onClick={closeAll} className="block px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
                     Change Password
                   </Link>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                    className="block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
                   >
                     Log out
                   </button>
@@ -449,7 +453,7 @@ function InnerLayout({
         {/* Student sidebar */}
         {sidebarOpen && (
           <aside
-            className="sidebar-scroll w-56 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-scroll flex flex-col"
+            className="sidebar-scroll w-56 flex-shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 overflow-y-scroll flex flex-col"
             style={{ position: 'sticky', top: '3.5rem', height: 'calc(100vh - 3.5rem)', alignSelf: 'flex-start' }}
           >
             <nav className="py-3 px-2 flex-1">
@@ -460,7 +464,7 @@ function InnerLayout({
                 return (
                   <div key={gi} className={gi > 0 ? 'mt-4' : ''}>
                     {group.section && (
-                      <p className="px-3 mb-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      <p className="px-3 mb-1 text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-widest">
                         {group.section}
                       </p>
                     )}
@@ -486,7 +490,7 @@ function InnerLayout({
                             className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                               active
                                 ? 'bg-[#4c1d95] text-white shadow-sm'
-                                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
                             }`}
                           >
                             <span className="text-base w-5 text-center leading-none" aria-hidden>{item.icon}</span>
@@ -502,8 +506,8 @@ function InnerLayout({
             </nav>
 
             {/* Sidebar footer */}
-            <div className="px-3 py-3 border-t border-gray-100">
-              <p className="text-[10px] text-gray-400 text-center">
+            <div className="px-3 py-3 border-t border-gray-100 dark:border-gray-700">
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 text-center">
                 Mule LMS v1.4 · © 2026
               </p>
             </div>
@@ -511,13 +515,13 @@ function InnerLayout({
         )}
 
         {/* Main content */}
-        <main className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden bg-gray-50">
+        <main className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden bg-gray-50 dark:bg-gray-900">
           {children}
         </main>
       </div>
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
-      <footer className="bg-white border-t border-gray-200 py-2.5 px-4 text-center text-xs text-gray-400">
+      <footer className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 py-2.5 px-4 text-center text-xs text-gray-400 dark:text-gray-500">
         Mule LMS © {new Date().getFullYear()} All Rights Reserved
       </footer>
     </div>
