@@ -12,13 +12,12 @@ npm run build     # Production build
 npm run lint      # ESLint
 ```
 
-### Backend (NestJS — runs on port 3000)
+### Backend (Express.js — runs on port 3000)
 ```bash
 cd backend
-npm run start:dev   # Watch mode
-npm run build       # Compile
-npm test            # Jest unit tests
-npm run test:e2e    # End-to-end tests
+npm run dev     # Watch mode with nodemon
+npm run build   # Compile TypeScript
+npm start       # Run compiled output (no test suite yet)
 ```
 
 ## Architecture
@@ -26,7 +25,7 @@ npm run test:e2e    # End-to-end tests
 This is a university Learning Management System with two separate apps:
 
 - **`frontend/`** — Next.js 15 (React 19), TypeScript, TailwindCSS, Supabase SSR (`@supabase/ssr`)
-- **`backend/`** — NestJS with Clean Architecture / DDD (scaffolded but not yet fully implemented; current auth and data flows run entirely through Supabase from the frontend)
+- **`backend/`** — Express.js (TypeScript) with Clean Architecture / DDD (scaffolded but not yet fully implemented; current auth and data flows run entirely through Supabase from the frontend)
 - **`supabase/migrations/`** — All DB migrations. `lmsv6.sql` is the base schema; incremental `.sql` files extend it. Apply all in order in the Supabase SQL editor.
 - **`docs/`** — Architecture reference documents.
 
@@ -39,13 +38,17 @@ There is a **single login page** (`/login`) for all roles. After login, users ar
 | `admin` | `/admin/dashboard` |
 | `instructor` | `/instructor/dashboard` |
 | `student` | `/dashboard` |
+| `registrar` | `/registrar/dashboard` |
+| `department_head` | `/dept-head/home` |
+| `academic_advisor` | `/advisor/dashboard` |
+| `it_admin` | `/it-admin/dashboard` |
 
 **How users are created:**
 - **Admin**: seeded directly in the database
 - **Instructor**: created by admin only — via invite email (Supabase `inviteUserByEmail`), never self-registered. Instructor completes account setup at `/setup-password?token=<UUID>`.
 - **Student**: self-registers via the signup page (`/signup`). New student accounts require admin approval before they can log in.
 
-**Role detection** (`src/lib/auth/get-user-roles.ts`): Reads `public.users.role` column. Falls back to checking which profile table has a row (`admin_profiles` → ADMIN, `instructor_profiles` → INSTRUCTOR, `student_profiles` → STUDENT) if the column is unset. Priority: ADMIN > INSTRUCTOR > STUDENT.
+**Role detection** (`src/lib/auth/get-user-roles.ts`): Reads `public.users.role` column. Falls back to checking which profile table has a row if the column is unset. Priority (from `src/types/auth.ts`): ADMIN > DEPARTMENT_HEAD > INSTRUCTOR > STUDENT > REGISTRAR > ACADEMIC_ADVISOR > IT_ADMIN.
 
 ## Frontend Portal Areas
 
@@ -56,6 +59,10 @@ Each route prefix has its own layout that enforces role access server-side:
 | `/dashboard` | `student` only | `src/app/dashboard/layout.tsx` |
 | `/instructor` | `instructor` or `admin` | `src/app/instructor/layout.tsx` |
 | `/admin` | `admin` only | `src/app/admin/layout.tsx` |
+| `/registrar` | `registrar` or `admin` | `src/app/registrar/layout.tsx` |
+| `/dept-head` | `department_head` or `admin` | `src/app/dept-head/layout.tsx` |
+| `/advisor` | `academic_advisor` or `admin` | `src/app/advisor/layout.tsx` |
+| `/it-admin` | `it_admin` or `admin` | `src/app/it-admin/layout.tsx` |
 | `/setup-password` | unauthenticated (invite flow) | standalone page |
 
 Layouts call `getUserRoleNames()` → `getHighestRole()` and redirect to the correct portal or `/unauthorized` if role doesn't match.
@@ -81,6 +88,14 @@ Layouts call `getUserRoleNames()` → `getHighestRole()` and redirect to the cor
 | `POST` | `/api/admin/students/[id]/reject` | admin | Rejects a pending student |
 | `GET` | `/api/admin/dashboard-stats` | admin | Returns aggregate dashboard statistics |
 | `POST` | `/api/admin/admins` | admin | Admin management |
+| `POST` | `/api/admin/staff/create` | admin | Create staff user (registrar / dept-head / advisor / it-admin) |
+| `GET` | `/api/admin/staff/registrars` | admin | List registrar users |
+| `POST` | `/api/admin/instructors/assign-department` | admin | Assign instructor to a department |
+| `DELETE` | `/api/admin/instructors/delete` | admin | Delete an instructor |
+| `POST` | `/api/payments/chapa/initialize` | student | Initialize Chapa payment for fees |
+| `GET` | `/api/payments/chapa/verify` | student | Verify Chapa payment status |
+| `POST` | `/api/payments/chapa/webhook` | none | Chapa payment webhook handler |
+| `GET` | `/api/certificates/[id]/generate-pdf` | auth | Generate certificate PDF via `pdf-lib` |
 | `GET` | `/api/supabase-health` | none | Supabase connectivity health check |
 
 ## Security Layer (`src/lib/security/`)
@@ -140,6 +155,19 @@ Utilities for safe YouTube embedding in lesson content:
 | `20260315000007_course_content_sort_order.sql` | `sort_order` on modules/items |
 | `20260315000008_lesson_progress_grants.sql` | DB grants for lesson progress table |
 | `20260322000001_instructor_invites.sql` | `instructor_invites` table (single-use UUID token, 48 h expiry) |
+| `002_expansion_rls.sql` | Extends role constraint; adds RLS for expanded roles (registrar, department_head) |
+| `20260401000001_staff_profiles.sql` | `registrar_profiles`, `department_head_profiles`, `academic_advisor_profiles`, `it_admin_profiles`; extends `users.role` check to all 7 roles |
+| `20260401000002_leave_management.sql` | Leave management tables for staff |
+| `20260401000003_dept_head_profiles_appointed_at.sql` | `appointed_at` column on `department_head_profiles` |
+| `20260401000004_instructor_profiles_department_id.sql` | `department_id` FK on `instructor_profiles` |
+| `20260401000006_instructor_profiles_grants.sql` | DB grants for instructor profiles table |
+| `20260402000001_student_profile_policies.sql` | Student profile access policies |
+| `20260405000001_registration_academic_tables.sql` | Academic registration tables |
+| `20260406000002_academic_calendar_ensure.sql` | Ensures academic calendar configuration |
+| `20260408000001_fix_users_access.sql` | Fixes PostgREST access grants on users table |
+| `20260421000001_chapa_payments.sql` | Chapa payment integration tables |
+| `20260421000002_student_profiles_program_id.sql` | `program_id` FK on `student_profiles` |
+| `20260421000003_notifications_payment_due.sql` | Payment-due notification type support |
 
 ### Core tables (from lmsv6.sql)
 
@@ -187,6 +215,10 @@ Utilities for safe YouTube embedding in lesson content:
 | Table | Purpose |
 |---|---|
 | `instructor_invites` | Single-use invite tokens for instructor onboarding. 48 h expiry. No RLS — service-role only. |
+| `registrar_profiles` | 1-to-1 extended profile for registrars. `staff_no`, `department`, `profile_status` |
+| `department_head_profiles` | 1-to-1 extended profile for department heads. Links to `departments.id` |
+| `academic_advisor_profiles` | 1-to-1 extended profile for academic advisors. `staff_no`, `specialization` |
+| `it_admin_profiles` | 1-to-1 extended profile for IT admins. `access_level` in (`standard`, `super`) |
 | `conversations` | One per student ↔ instructor pair per offering |
 | `messages` | Messages within a conversation |
 | `message_attachments` | File attachments on messages |
@@ -196,7 +228,7 @@ Utilities for safe YouTube embedding in lesson content:
 | `study_group_attachments` | File attachments on study group messages |
 
 ### Key DB rules
-- `users.role` check: only `'admin'`, `'instructor'`, `'student'` (lowercase)
+- `users.role` check: `'admin'`, `'instructor'`, `'student'`, `'registrar'`, `'department_head'`, `'academic_advisor'`, `'it_admin'` (all lowercase)
 - `instructor_profiles.created_by` is `NOT NULL` — instructors can only be created by an admin
 - `course_offerings.enrolled_count` is auto-maintained by a trigger
 - Only one `academic_terms.is_current = true` at a time (partial unique index)
@@ -226,7 +258,7 @@ JWT_EXPIRES_IN=15m
 
 - **`SUPABASE_SERVICE_ROLE_KEY`** must only be used server-side (Route Handlers, server components). It bypasses RLS.
 - Role values in `users.role` are **lowercase** (`admin`, `instructor`, `student`) but the app code normalizes to uppercase (`ADMIN`, `INSTRUCTOR`, `STUDENT`) for comparisons via `getUserRoleNames()`.
-- The NestJS backend follows dependency inversion: domain layer has no framework imports; infrastructure and interface layers depend on domain, not vice versa. Backend API uses `/v1/` path versioning.
+- The Express backend follows Clean Architecture / DDD: domain layer has no framework imports; infrastructure and interface layers depend on domain, not vice versa. Backend API uses `/v1/` path versioning.
 - **All DB changes** go in `supabase/migrations/` as timestamped `.sql` files (e.g., `20260322000001_instructor_invites.sql`). Do not paste migration SQL in chat — write it directly to the migrations folder.
 - **No RLS** anywhere in the schema. Do not add row-level security policies.
 - Password policy and breach checks are always enforced **server-side** (never trust client-side validation alone).

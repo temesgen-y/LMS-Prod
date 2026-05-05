@@ -59,6 +59,7 @@ export default function CertificatesPage() {
   const [saving, setSaving] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<Certificate | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
 
   const loadEnrollments = useCallback(async () => {
     const { data } = await supabase
@@ -131,19 +132,35 @@ export default function CertificatesPage() {
     }));
   };
 
+  const handleGeneratePdf = async (certId: string) => {
+    setGeneratingPdf(certId);
+    try {
+      const res = await fetch(`/api/certificates/${certId}/generate-pdf`, { method: 'POST' });
+      if (res.ok) {
+        toast.success('PDF generated successfully');
+        load();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? 'PDF generation failed');
+      }
+    } finally {
+      setGeneratingPdf(null);
+    }
+  };
+
   const handleIssue = async () => {
     if (!form.enrollment_id) { toast.error('Select a completed enrollment'); return; }
     if (!form.unique_code.trim()) { toast.error('Certificate code is required'); return; }
     setSaving(true);
 
-    const { error } = await supabase.from('certificates').insert({
+    const { data: newCert, error } = await supabase.from('certificates').insert({
       student_id: form.student_id,
       enrollment_id: form.enrollment_id,
       offering_id: form.offering_id,
       unique_code: form.unique_code.trim(),
       pdf_url: form.pdf_url.trim() || null,
       expires_at: form.expires_at || null,
-    });
+    }).select('id').single();
 
     if (error) {
       if (error.message.includes('uq_certificates_enrollment')) {
@@ -156,10 +173,22 @@ export default function CertificatesPage() {
       setSaving(false);
       return;
     }
-    toast.success('Certificate issued');
-    setSaving(false);
+
+    toast.success('Certificate issued — generating PDF…');
     setShowModal(false);
+    setSaving(false);
     load();
+
+    // Auto-generate PDF in background
+    if (newCert?.id) {
+      const res = await fetch(`/api/certificates/${newCert.id}/generate-pdf`, { method: 'POST' });
+      if (res.ok) {
+        toast.success('Certificate PDF ready');
+        load();
+      } else {
+        toast.error('PDF generation failed — use Generate PDF button to retry.');
+      }
+    }
   };
 
   const handleRevoke = async () => {
@@ -268,9 +297,33 @@ export default function CertificatesPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {!c.revoked_at && (
-                        <button onClick={() => { setRevokeTarget(c); setRevokeReason(''); }} className="text-red-500 hover:underline text-xs">Revoke</button>
-                      )}
+                      <div className="flex flex-col gap-1 items-start">
+                        <a
+                          href={`/verify/${c.unique_code}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-indigo-500 hover:underline text-xs"
+                        >
+                          Verify
+                        </a>
+                        {!c.pdf_url && !c.revoked_at && (
+                          <button
+                            onClick={() => handleGeneratePdf(c.id)}
+                            disabled={generatingPdf === c.id}
+                            className="text-blue-500 hover:underline text-xs disabled:opacity-50"
+                          >
+                            {generatingPdf === c.id ? 'Generating…' : 'Generate PDF'}
+                          </button>
+                        )}
+                        {!c.revoked_at && (
+                          <button
+                            onClick={() => { setRevokeTarget(c); setRevokeReason(''); }}
+                            className="text-red-500 hover:underline text-xs"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

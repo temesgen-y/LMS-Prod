@@ -29,7 +29,6 @@ const navItems = [
   { href: '/admin/courses', label: 'Courses', icon: 'courses' },
   { href: '/admin/course-offerings', label: 'Course Offerings', icon: 'course-offerings' },
   { href: '/admin/course-instructors', label: 'Course Instructors', icon: 'course-instructors' },
-  { href: '/admin/enrollments', label: 'Enrollments', icon: 'enrollments' },
   { href: '/admin/admin-profiles', label: 'Admin Profiles', icon: 'admin-profiles' },
   { href: '/admin/announcements', label: 'Announcements', icon: 'announcements' },
   { href: '/admin/institution-settings', label: 'Institution Settings', icon: 'institution-settings' },
@@ -40,6 +39,7 @@ const navItems = [
 const staffItems = [
   { href: '/admin/staff/registrars', label: 'Registrars', icon: 'staff-single' },
   { href: '/admin/staff/advisors', label: 'Academic Advisors', icon: 'staff-single' },
+  { href: '/admin/advisor-assignments', label: 'Advisor Assignments', icon: 'enrollments' },
   { href: '/admin/staff/it-admins', label: 'IT Administrators', icon: 'staff-group' },
   { href: '/admin/instructors/unassigned', label: 'Unassigned Instructors', icon: 'unassigned' },
 ];

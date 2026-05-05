@@ -105,10 +105,10 @@ export default function EnrollmentsPage() {
   const [formErrors, setFormErrors] = useState<{ student?: string; offering?: string }>({});
   const [saving, setSaving] = useState(false);
 
-  // Admin identity
-  const [adminUserId, setAdminUserId] = useState('');
+  // Actor identity (registrar user)
+  const [actorUserId, setActorUserId] = useState('');
 
-  // ── Load admin identity ──────────────────────────────────────────────────
+  // ── Load actor identity ──────────────────────────────────────────────────
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -118,7 +118,7 @@ export default function EnrollmentsPage() {
         .select('id')
         .eq('auth_user_id', user.id)
         .single()
-        .then(({ data }) => { if (data) setAdminUserId((data as { id: string }).id); });
+        .then(({ data }) => { if (data) setActorUserId((data as { id: string }).id); });
     });
   }, []);
 
@@ -314,7 +314,7 @@ export default function EnrollmentsPage() {
       .insert({
         student_id:  form.studentId,
         offering_id: form.offeringId,
-        enrolled_by: adminUserId || null,
+        enrolled_by: actorUserId || null,
         status:      form.status,
       })
       .select()
@@ -330,9 +330,9 @@ export default function EnrollmentsPage() {
     }
 
     // Audit log (non-blocking)
-    if (adminUserId && newEnrollment) {
+    if (actorUserId && newEnrollment) {
       await supabase.from('audit_logs').insert({
-        actor_id:   adminUserId,
+        actor_id:   actorUserId,
         action:     'enrollment.create',
         table_name: 'enrollments',
         record_id:  (newEnrollment as any).id,

@@ -50,6 +50,7 @@ export default function AdminStaffAdvisorsPage() {
   const [deactivateTarget, setDeactivateTarget] = useState<Advisor | null>(null);
   const [deactivating, setDeactivating] = useState(false);
 
+
   const fetchAdvisors = useCallback(async () => {
     setLoading(true);
     const supabase = createClient();
@@ -507,7 +508,7 @@ export default function AdminStaffAdvisorsPage() {
                       </td>
                       <td className="px-5 py-3 text-sm text-gray-500">{fmtDate(adv.createdAt)}</td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <button type="button" onClick={() => openEdit(adv)}
                             className="px-3 py-1 rounded text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200">Edit</button>
                           {adv.status === 'active' ? (

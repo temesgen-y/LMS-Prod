@@ -17,6 +17,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "@types/zxcvbn": "^4.4.5",
     "next": "15.5.15",
+    "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.71.2",

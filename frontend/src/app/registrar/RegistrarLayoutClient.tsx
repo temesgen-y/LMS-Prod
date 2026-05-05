@@ -29,6 +29,7 @@ const navSections: NavSection[] = [
   {
     label: 'REGISTRATION',
     items: [
+      { href: '/registrar/enrollments', label: 'Enrollments' },
       { href: '/registrar/registrations', label: 'Registration Requests' },
       { href: '/registrar/add-drop', label: 'Course Add/Drop' },
       { href: '/registrar/withdrawals', label: 'Withdrawal Requests' },

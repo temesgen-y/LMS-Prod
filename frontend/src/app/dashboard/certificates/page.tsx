@@ -106,6 +106,14 @@ export default function CertificatesPage() {
                       {c.expiresAt && (
                         <p className="mt-0.5">Expires: <span className="text-amber-700 font-medium">{new Date(c.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></p>
                       )}
+                      <a
+                        href={`/verify/${c.uniqueCode}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-block text-indigo-500 hover:underline"
+                      >
+                        Verify certificate
+                      </a>
                     </div>
                     {c.pdfUrl && !c.isRevoked && (
                       <a
