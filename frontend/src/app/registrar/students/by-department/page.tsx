@@ -20,6 +20,11 @@ interface DeptGroup {
   students: Student[];
 }
 
+interface Department {
+  id: string;
+  name: string;
+}
+
 function statusBadge(status: string) {
   const map: Record<string, string> = {
     active: 'bg-green-100 text-green-800',
@@ -35,6 +40,7 @@ export default function ByDepartmentPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [groups, setGroups] = useState<DeptGroup[]>([]);
+  const [allDepts, setAllDepts] = useState<Department[]>([]);
   const [selectedDept, setSelectedDept] = useState('all');
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -46,11 +52,16 @@ export default function ByDepartmentPage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (!authUser) { router.replace('/login'); return; }
 
-        const { data, error: err } = await supabase
-          .from('users')
-          .select('id, first_name, last_name, email, status, student_profiles!user_id(student_no, program)')
-          .eq('role', 'student')
-          .order('last_name');
+        const [{ data: deptData }, { data, error: err }] = await Promise.all([
+          supabase.from('departments').select('id, name').eq('is_active', true).order('name'),
+          supabase
+            .from('users')
+            .select('id, first_name, last_name, email, status, student_profiles!user_id(student_no, program)')
+            .eq('role', 'student')
+            .order('last_name'),
+        ]);
+
+        setAllDepts(((deptData ?? []) as any[]).map(d => ({ id: d.id, name: d.name })));
 
         if (err) throw new Error(err.message);
 
@@ -153,20 +164,37 @@ export default function ByDepartmentPage() {
         >
           All ({allStudents.length})
         </button>
-        {groups.map(g => (
+        {allDepts.map(d => {
+          const count = groups.find(g => g.name === d.name)?.students.length ?? 0;
+          return (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => setSelectedDept(d.name)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                selectedDept === d.name
+                  ? 'bg-purple-700 text-white border-purple-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {d.name} ({count})
+            </button>
+          );
+        })}
+        {/* Show Unassigned button if any students lack a department */}
+        {groups.find(g => g.name === 'Unassigned / No Department') && (
           <button
-            key={g.name}
             type="button"
-            onClick={() => setSelectedDept(g.name)}
+            onClick={() => setSelectedDept('Unassigned / No Department')}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              selectedDept === g.name
-                ? 'bg-purple-700 text-white border-purple-700'
-                : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              selectedDept === 'Unassigned / No Department'
+                ? 'bg-gray-700 text-white border-gray-700'
+                : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
             }`}
           >
-            {g.name} ({g.students.length})
+            Unassigned ({groups.find(g => g.name === 'Unassigned / No Department')?.students.length ?? 0})
           </button>
-        ))}
+        )}
       </div>
 
       {/* Search */}
