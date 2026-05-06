@@ -31,6 +31,47 @@ type StudentInfo = {
   email      : string;
 };
 
+function exportTranscriptCSV(studentInfo: StudentInfo | null, terms: TermGroup[], totalAttempted: number, totalEarned: number, latestStanding: TermGroup | undefined) {
+  const rows: string[][] = [];
+  rows.push(['MULE LMS — Unofficial Academic Transcript']);
+  rows.push([]);
+  rows.push(['Student', `${studentInfo?.firstName ?? ''} ${studentInfo?.lastName ?? ''}`.trim()]);
+  rows.push(['Student No', studentInfo?.studentNo ?? '—']);
+  rows.push(['Program', studentInfo?.program ?? '—']);
+  rows.push(['Date Printed', new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })]);
+  rows.push([]);
+
+  for (const term of terms) {
+    rows.push([term.termName, term.year ? String(term.year) : '']);
+    rows.push(['Code', 'Title', 'Credits', 'Grade']);
+    for (const c of term.courses) {
+      rows.push([c.code, c.title, String(c.credits), c.grade ?? (c.status === 'withdrawn' ? 'W' : '—')]);
+    }
+    const termCredits = term.courses.filter(c => c.status === 'completed').reduce((s, c) => s + c.credits, 0);
+    const summary = [`Credits: ${termCredits}`];
+    if (term.gpa !== null) summary.push(`GPA: ${term.gpa.toFixed(2)}`);
+    if (term.cumulativeGpa !== null) summary.push(`Cumulative GPA: ${term.cumulativeGpa.toFixed(2)}`);
+    if (term.standing) summary.push(`Standing: ${term.standing.replace('_', ' ')}`);
+    rows.push([summary.join('  ·  ')]);
+    rows.push([]);
+  }
+
+  rows.push(['TOTALS']);
+  rows.push(['Total Credits Attempted', String(totalAttempted)]);
+  rows.push(['Total Credits Earned', String(totalEarned)]);
+  rows.push(['Cumulative GPA', latestStanding?.cumulativeGpa?.toFixed(2) ?? '—']);
+  rows.push(['Academic Standing', latestStanding?.standing ?? '—']);
+
+  const csv = rows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `transcript-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const GRADE_SCALE = [
   { grade: 'A',  points: '4.0', range: '93–100' },
   { grade: 'A-', points: '3.7', range: '90–92'  },
@@ -187,13 +228,24 @@ export default function MyTranscriptPage() {
             <span>›</span>
             <span className="text-gray-900 font-medium">My Transcript</span>
           </nav>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-[#4c1d95] text-white text-sm font-medium rounded-lg hover:bg-[#5b21b6] transition-colors"
-          >
-            🖨️ Print Transcript
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => exportTranscriptCSV(studentInfo, terms, totalAttempted, totalEarned, latestStanding)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#4c1d95] text-white text-sm font-medium rounded-lg hover:bg-[#5b21b6] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+              Print PDF
+            </button>
+          </div>
         </div>
 
         {/* Disclaimer */}
