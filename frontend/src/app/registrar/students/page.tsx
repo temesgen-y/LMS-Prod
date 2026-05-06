@@ -159,7 +159,7 @@ export default function StudentsPage() {
       </div>
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {filtered.length > 0 && (
         <div className="flex items-center justify-between mt-4">
           <p className="text-sm text-gray-500">
             Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
