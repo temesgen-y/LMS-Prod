@@ -57,8 +57,9 @@ export const preprocessRichTextHtml = (html: string): string => {
 
     // Rewrite src — safe nocookie URL with correct params
     iframe.setAttribute('src', buildSafeYoutubeUrl(videoId));
-    iframe.removeAttribute('allowfullscreen');
-    iframe.removeAttribute('allowFullScreen');
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+    iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
     // Remove fixed pixel dimensions — wrapper controls sizing
     iframe.removeAttribute('width');
     iframe.removeAttribute('height');

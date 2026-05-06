@@ -52,7 +52,9 @@ export default function ProtectedVideoPlayer({ url, title, onEnded }: Props) {
         src={embedUrl}
         title={title}
         className="absolute inset-0 w-full h-full"
-        allow="accelerometer; autoplay; encrypted-media; gyroscope"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        referrerPolicy="strict-origin-when-cross-origin"
         style={{ border: 'none' }}
       />
 
