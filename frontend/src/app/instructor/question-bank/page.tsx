@@ -103,21 +103,38 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
-function parseCSV(text: string): QuestionRow[] {
+interface ParseResult {
+  questions: QuestionRow[];
+  detectedColumns: string[];
+  missingRequired: string[];
+  badTypeRows: number;
+}
+
+function parseCSV(text: string): ParseResult {
   const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
-  if (lines.length < 2) return [];
+  if (lines.length < 2) return { questions: [], detectedColumns: [], missingRequired: ['type', 'body'], badTypeRows: 0 };
+
   const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+  const detectedColumns = header;
+
   const typeIdx = header.indexOf('type');
   const bodyIdx = header.indexOf('body');
   const marksIdx = header.indexOf('marks');
   const explIdx = header.indexOf('explanation');
   const mediaIdx = header.indexOf('media_url');
 
+  const missingRequired: string[] = [];
+  if (typeIdx === -1) missingRequired.push('type');
+  if (bodyIdx === -1) missingRequired.push('body');
+  if (missingRequired.length > 0) return { questions: [], detectedColumns, missingRequired, badTypeRows: 0 };
+
   const questions: QuestionRow[] = [];
+  let badTypeRows = 0;
+
   for (let i = 1; i < lines.length; i++) {
     const cols = parseCSVLine(lines[i]);
     const type = (cols[typeIdx] ?? '').toLowerCase() as QuestionType;
-    if (!QUESTION_TYPES.includes(type)) continue;
+    if (!QUESTION_TYPES.includes(type)) { badTypeRows++; continue; }
     const body = cols[bodyIdx] ?? '';
     if (!body.trim()) continue;
     const marks = Math.max(1, parseInt(cols[marksIdx] ?? '1', 10) || 1);
@@ -138,7 +155,7 @@ function parseCSV(text: string): QuestionRow[] {
 
     questions.push({ type, body, marks, explanation, media_url, options });
   }
-  return questions;
+  return { questions, detectedColumns, missingRequired, badTypeRows };
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -161,6 +178,7 @@ export default function QuestionBankPage() {
   const [previewRows, setPreviewRows] = useState<QuestionRow[]>([]);
   const [importing, setImporting] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [parseError, setParseError] = useState<string | null>(null);
 
   const loadAssessments = useCallback(async () => {
     setLoading(true);
@@ -250,13 +268,26 @@ export default function QuestionBankPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setParseError(null);
+    setPreviewRows([]);
     const reader = new FileReader();
     reader.onload = ev => {
       const text = ev.target?.result as string;
-      const parsed = parseCSV(text);
-      setPreviewRows(parsed);
-      if (parsed.length === 0) toast.error('No valid questions found. Check the file format.');
-      else toast.success(`Parsed ${parsed.length} question${parsed.length !== 1 ? 's' : ''} — review below`);
+      const { questions, detectedColumns, missingRequired, badTypeRows } = parseCSV(text);
+      setPreviewRows(questions);
+      if (questions.length === 0) {
+        let msg = 'No valid questions found.';
+        if (missingRequired.length > 0) {
+          msg = `Missing required column${missingRequired.length > 1 ? 's' : ''}: "${missingRequired.join('", "')}". `;
+          msg += `Your file has: ${detectedColumns.slice(0, 6).join(', ')}${detectedColumns.length > 6 ? '…' : ''}.`;
+        } else if (badTypeRows > 0) {
+          msg = `${badTypeRows} row${badTypeRows > 1 ? 's' : ''} skipped — "type" values must be one of: ${QUESTION_TYPES.join(', ')}. `;
+          msg += `This looks like a different CSV (e.g. attendance). Download the Question Bank template instead.`;
+        }
+        setParseError(msg);
+      } else {
+        toast.success(`Parsed ${questions.length} question${questions.length !== 1 ? 's' : ''} — review below`);
+      }
     };
     reader.readAsText(file);
   };
@@ -312,6 +343,7 @@ export default function QuestionBankPage() {
   const clearPreview = () => {
     setPreviewRows([]);
     setFileName('');
+    setParseError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -489,9 +521,32 @@ export default function QuestionBankPage() {
                   )}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  Use the template from the Export tab as a starting point.
+                  Must be a Question Bank CSV.{' '}
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="text-purple-700 hover:underline"
+                  >
+                    Download template
+                  </button>{' '}
+                  to see the required format.
                 </p>
               </div>
+
+              {/* Parse error */}
+              {parseError && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  <p className="font-medium mb-1">Could not read questions from this file</p>
+                  <p className="text-xs text-red-600">{parseError}</p>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate}
+                    className="mt-2 text-xs font-medium text-purple-700 hover:underline"
+                  >
+                    Download Question Bank template →
+                  </button>
+                </div>
+              )}
 
               {previewRows.length > 0 && (
                 <div className="flex gap-3">
