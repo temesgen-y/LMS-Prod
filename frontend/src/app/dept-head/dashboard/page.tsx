@@ -77,7 +77,7 @@ export default function DeptHeadDashboardPage() {
             : Promise.resolve({ count: 0 }),
           supabase.from('course_offerings').select('id', { count: 'exact', head: true })
             .in('id', instrUserIds.length > 0
-              ? await supabase.from('course_instructors').select('offering_id').in('instructor_id', instrUserIds).then(r => (r.data ?? []).map((x: any) => x.offering_id))
+              ? await supabase.from('course_instructors').select('offering_id').in('instructor_id', instrUserIds).then((r: any) => (r.data ?? []).map((x: any) => x.offering_id))
               : []
             ),
           instrUserIds.length > 0

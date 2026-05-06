@@ -141,7 +141,7 @@ export default function InstructorModuleItemsPage() {
       .select('id, title, sort_order')
       .eq('offering_id', selectedOffering)
       .order('sort_order', { ascending: true })
-      .then(({ data }) => {
+      .then(({ data }: { data: any }) => {
         const mods: ModuleOption[] = (data ?? []).map((m: any) => ({
           id: m.id,
           label: m.title,

@@ -28,6 +28,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/advisor/appointments', label: 'Appointments' },
       { href: '/advisor/holds', label: 'Hold Management' },
+      { href: '/advisor/calendar', label: 'Academic Calendar' },
     ],
   },
   {

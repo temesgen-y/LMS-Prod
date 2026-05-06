@@ -88,7 +88,7 @@ export default function StudentAssignmentsPage() {
       const gradeMap = new Map((grades || []).map((g: any) => [g.assignment_id, g.raw_score]));
 
       const result: Assignment[] = asgns.map((a: any) => {
-        const sub = subMap.get(a.id);
+        const sub = subMap.get(a.id) as any;
         return {
           id: a.id,
           title: a.title,

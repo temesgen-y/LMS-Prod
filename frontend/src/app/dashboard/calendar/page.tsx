@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 interface CalendarEvent {
@@ -69,6 +69,118 @@ function DaysTag({ date }: { date: string }) {
   return <span className="text-xs text-gray-400">In {days} days</span>;
 }
 
+// ── Month Grid Component ──────────────────────────────────────────────────────
+
+function MonthGrid({
+  year,
+  month,
+  events,
+  selectedDate,
+  onSelectDate,
+}: {
+  year: number;
+  month: number;
+  events: CalendarEvent[];
+  selectedDate: string | null;
+  onSelectDate: (date: string) => void;
+}) {
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Build a map of date -> events
+  const eventsByDate = useMemo(() => {
+    const map: Record<string, CalendarEvent[]> = {};
+    events.forEach(e => {
+      const d = e.event_date;
+      if (!map[d]) map[d] = [];
+      map[d].push(e);
+      // If multi-day, add dots for each day in range
+      if (e.end_date && e.end_date !== e.event_date) {
+        const start = new Date(e.event_date + 'T12:00:00');
+        const end = new Date(e.end_date + 'T12:00:00');
+        const cur = new Date(start);
+        cur.setDate(cur.getDate() + 1);
+        while (cur <= end) {
+          const ds = cur.toISOString().slice(0, 10);
+          if (!map[ds]) map[ds] = [];
+          map[ds].push(e);
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    });
+    return map;
+  }, [events]);
+
+  const cells: (number | null)[] = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Weekday headers */}
+      <div className="grid grid-cols-7 border-b border-gray-100">
+        {WEEKDAYS.map(w => (
+          <div key={w} className="py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {w}
+          </div>
+        ))}
+      </div>
+      {/* Day cells */}
+      <div className="grid grid-cols-7">
+        {cells.map((day, i) => {
+          if (day === null) {
+            return <div key={`empty-${i}`} className="min-h-[80px] border-b border-r border-gray-50 bg-gray-50/50" />;
+          }
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          const dayEvents = eventsByDate[dateStr] ?? [];
+          const isToday = dateStr === todayStr;
+          const isSelected = dateStr === selectedDate;
+
+          return (
+            <button
+              key={dateStr}
+              type="button"
+              onClick={() => onSelectDate(dateStr)}
+              className={`min-h-[80px] p-1.5 border-b border-r border-gray-50 text-left transition-colors hover:bg-indigo-50/50
+                ${isSelected ? 'bg-indigo-50 ring-2 ring-inset ring-indigo-400' : ''}
+              `}
+            >
+              <div className="flex items-center justify-between mb-0.5">
+                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold
+                  ${isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'}
+                `}>
+                  {day}
+                </span>
+              </div>
+              {/* Event dots / labels */}
+              <div className="space-y-0.5">
+                {dayEvents.slice(0, 3).map((e, ei) => {
+                  const colors = EVENT_TYPE_COLORS[e.event_type] ?? EVENT_TYPE_COLORS.other;
+                  return (
+                    <div key={`${e.id}-${ei}`} className={`text-[10px] leading-tight truncate px-1 py-0.5 rounded ${colors.bg} ${colors.text} font-medium`}>
+                      {e.event_name}
+                    </div>
+                  );
+                })}
+                {dayEvents.length > 3 && (
+                  <div className="text-[10px] text-gray-400 px-1">+{dayEvents.length - 3} more</div>
+                )}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+type ViewMode = 'month' | 'list';
+
 export default function StudentCalendarPage() {
   const [events, setEvents]           = useState<CalendarEvent[]>([]);
   const [terms, setTerms]             = useState<Term[]>([]);
@@ -77,6 +189,30 @@ export default function StudentCalendarPage() {
   const [selectedTerm, setSelectedTerm]   = useState('');
   const [selectedType, setSelectedType]   = useState('');
   const [showPast, setShowPast]           = useState(false);
+  const [viewMode, setViewMode]           = useState<ViewMode>('month');
+  const [selectedDate, setSelectedDate]   = useState<string | null>(null);
+
+  // Month navigation
+  const now = new Date();
+  const [viewYear, setViewYear]   = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+
+  const prevMonth = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  };
+  const goToday = () => {
+    const t = new Date();
+    setViewYear(t.getFullYear());
+    setViewMonth(t.getMonth());
+    setSelectedDate(null);
+  };
+
+  const monthLabel = new Date(viewYear, viewMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -123,22 +259,50 @@ export default function StudentCalendarPage() {
 
   const today = new Date().toISOString().slice(0, 10);
 
-  const filtered = events.filter(e => {
-    if (!showPast && e.event_date < today) return false;
-    if (selectedTerm && e.term_id !== selectedTerm) return false;
-    if (selectedType && e.event_type !== selectedType) return false;
-    return true;
-  });
+  // For the month grid, filter events that fall within the viewed month
+  const monthEvents = useMemo(() => {
+    const monthStart = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-01`;
+    const monthEnd = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(new Date(viewYear, viewMonth + 1, 0).getDate()).padStart(2, '0')}`;
+    return events.filter(e => {
+      if (selectedTerm && e.term_id !== selectedTerm) return false;
+      if (selectedType && e.event_type !== selectedType) return false;
+      // Event overlaps with this month
+      const eventStart = e.event_date;
+      const eventEnd = e.end_date || e.event_date;
+      return eventStart <= monthEnd && eventEnd >= monthStart;
+    });
+  }, [events, viewYear, viewMonth, selectedTerm, selectedType]);
 
-  const upcoming = filtered.filter(e => e.event_date >= today).slice(0, 3);
+  // Events for the selected date (if a date is clicked)
+  const dateEvents = useMemo(() => {
+    if (!selectedDate) return [];
+    return events.filter(e => {
+      if (selectedTerm && e.term_id !== selectedTerm) return false;
+      if (selectedType && e.event_type !== selectedType) return false;
+      const eventEnd = e.end_date || e.event_date;
+      return e.event_date <= selectedDate && eventEnd >= selectedDate;
+    });
+  }, [events, selectedDate, selectedTerm, selectedType]);
+
+  // List view filtering
+  const listFiltered = useMemo(() => {
+    return events.filter(e => {
+      if (!showPast && e.event_date < today) return false;
+      if (selectedTerm && e.term_id !== selectedTerm) return false;
+      if (selectedType && e.event_type !== selectedType) return false;
+      return true;
+    });
+  }, [events, showPast, today, selectedTerm, selectedType]);
+
+  const upcoming = listFiltered.filter(e => e.event_date >= today).slice(0, 3);
 
   if (loading) {
     return (
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-4xl mx-auto space-y-4 animate-pulse">
+        <div className="max-w-5xl mx-auto space-y-4 animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-56" />
           <div className="h-28 bg-gray-200 rounded-xl" />
-          {[1,2,3,4].map(i => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}
+          <div className="h-96 bg-gray-200 rounded-xl" />
         </div>
       </div>
     );
@@ -146,19 +310,38 @@ export default function StudentCalendarPage() {
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
 
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Academic Calendar</h1>
-          <p className="text-sm text-gray-500 mt-1">University-wide academic events and deadlines</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Academic Calendar</h1>
+            <p className="text-sm text-gray-500 mt-1">University-wide academic events and deadlines</p>
+          </div>
+          {/* View toggle */}
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('month')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'month' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Month
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              List
+            </button>
+          </div>
         </div>
 
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
         )}
 
-        {/* Upcoming highlights */}
+        {/* Upcoming highlights (always shown) */}
         {upcoming.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {upcoming.map(e => {
@@ -202,84 +385,169 @@ export default function StudentCalendarPage() {
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
-          <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showPast}
-              onChange={e => setShowPast(e.target.checked)}
-              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-            />
-            Show past events
-          </label>
-          <span className="ml-auto text-sm text-gray-400">{filtered.length} event{filtered.length !== 1 ? 's' : ''}</span>
+          {viewMode === 'list' && (
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showPast}
+                onChange={e => setShowPast(e.target.checked)}
+                className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              Show past events
+            </label>
+          )}
+          <span className="ml-auto text-sm text-gray-400">
+            {viewMode === 'list' ? `${listFiltered.length} event${listFiltered.length !== 1 ? 's' : ''}` : `${monthEvents.length} this month`}
+          </span>
         </div>
 
-        {/* Event list */}
-        {filtered.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
-            <div className="text-4xl mb-3">📆</div>
-            <p className="text-sm text-gray-500">No academic events found.</p>
-            {!showPast && (
-              <button
-                type="button"
-                onClick={() => setShowPast(true)}
-                className="mt-2 text-sm text-purple-600 hover:underline"
-              >
-                Show past events?
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filtered.map(e => {
-              const colors = EVENT_TYPE_COLORS[e.event_type] ?? EVENT_TYPE_COLORS.other;
-              const isPast  = e.event_date < today;
-              return (
-                <div
-                  key={e.id}
-                  className={`bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-4 ${isPast ? 'opacity-60' : ''}`}
-                >
-                  {/* Date column */}
-                  <div className="shrink-0 w-14 text-center">
-                    <div className="text-xl font-bold text-gray-900 leading-tight">
-                      {new Date(e.event_date + 'T12:00:00').getDate()}
-                    </div>
-                    <div className="text-xs text-gray-500 uppercase font-medium">
-                      {new Date(e.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short' })}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(e.event_date + 'T12:00:00').getFullYear()}
-                    </div>
-                  </div>
+        {/* ── MONTH VIEW ─────────────────────────────────────────────────────── */}
+        {viewMode === 'month' && (
+          <>
+            {/* Month navigation */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={prevMonth} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <h2 className="text-lg font-bold text-gray-900 min-w-[180px] text-center">{monthLabel}</h2>
+                <button type="button" onClick={nextMonth} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <button type="button" onClick={goToday} className="px-3 py-1.5 text-xs font-semibold text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-colors ml-1">
+                  Today
+                </button>
+              </div>
+            </div>
 
-                  {/* Details */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="text-sm font-semibold text-gray-900">{e.event_name}</span>
-                      <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
-                        {EVENT_TYPE_LABELS[e.event_type] ?? e.event_type}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500">{e.term_name}</p>
-                    {e.description && (
-                      <p className="text-sm text-gray-600 mt-1">{e.description}</p>
-                    )}
-                    {e.end_date && e.end_date !== e.event_date && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        Ends: {fmt(e.end_date)}
-                      </p>
-                    )}
-                  </div>
+            {/* Month grid */}
+            <MonthGrid
+              year={viewYear}
+              month={viewMonth}
+              events={monthEvents}
+              selectedDate={selectedDate}
+              onSelectDate={setSelectedDate}
+            />
 
-                  {/* Days tag */}
-                  <div className="shrink-0 text-right">
-                    <DaysTag date={e.event_date} />
-                  </div>
+            {/* Selected date events panel */}
+            {selectedDate && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50/50">
+                  <h3 className="font-semibold text-gray-900 text-sm">
+                    Events on {new Date(selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </h3>
+                  <button type="button" onClick={() => setSelectedDate(null)} className="text-xs text-gray-500 hover:text-gray-700">
+                    Clear
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+                {dateEvents.length === 0 ? (
+                  <p className="px-5 py-8 text-center text-sm text-gray-400">No events on this date</p>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {dateEvents.map(e => {
+                      const colors = EVENT_TYPE_COLORS[e.event_type] ?? EVENT_TYPE_COLORS.other;
+                      return (
+                        <div key={e.id} className="px-5 py-3 flex items-start gap-3">
+                          <span className={`mt-1 w-2.5 h-2.5 rounded-full shrink-0 ${colors.dot}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-semibold text-gray-900">{e.event_name}</span>
+                              <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
+                                {EVENT_TYPE_LABELS[e.event_type] ?? e.event_type}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{e.term_name}</p>
+                            {e.description && <p className="text-sm text-gray-600 mt-1">{e.description}</p>}
+                            {e.end_date && e.end_date !== e.event_date && (
+                              <p className="text-xs text-gray-400 mt-1">
+                                {fmt(e.event_date)} — {fmt(e.end_date)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── LIST VIEW ──────────────────────────────────────────────────────── */}
+        {viewMode === 'list' && (
+          <>
+            {listFiltered.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 py-16 text-center">
+                <div className="text-4xl mb-3">📆</div>
+                <p className="text-sm text-gray-500">No academic events found.</p>
+                {!showPast && (
+                  <button
+                    type="button"
+                    onClick={() => setShowPast(true)}
+                    className="mt-2 text-sm text-purple-600 hover:underline"
+                  >
+                    Show past events?
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {listFiltered.map(e => {
+                  const colors = EVENT_TYPE_COLORS[e.event_type] ?? EVENT_TYPE_COLORS.other;
+                  const isPast  = e.event_date < today;
+                  return (
+                    <div
+                      key={e.id}
+                      className={`bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-4 ${isPast ? 'opacity-60' : ''}`}
+                    >
+                      {/* Date column */}
+                      <div className="shrink-0 w-14 text-center">
+                        <div className="text-xl font-bold text-gray-900 leading-tight">
+                          {new Date(e.event_date + 'T12:00:00').getDate()}
+                        </div>
+                        <div className="text-xs text-gray-500 uppercase font-medium">
+                          {new Date(e.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short' })}
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          {new Date(e.event_date + 'T12:00:00').getFullYear()}
+                        </div>
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="text-sm font-semibold text-gray-900">{e.event_name}</span>
+                          <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${colors.dot}`} />
+                            {EVENT_TYPE_LABELS[e.event_type] ?? e.event_type}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">{e.term_name}</p>
+                        {e.description && (
+                          <p className="text-sm text-gray-600 mt-1">{e.description}</p>
+                        )}
+                        {e.end_date && e.end_date !== e.event_date && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Ends: {fmt(e.end_date)}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Days tag */}
+                      <div className="shrink-0 text-right">
+                        <DaysTag date={e.event_date} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

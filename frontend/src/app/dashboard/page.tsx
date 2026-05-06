@@ -688,6 +688,7 @@ export default function StudentHomePage() {
         <section>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-bold text-gray-900">Academic Calendar</h2>
+            <Link href="/dashboard/calendar" className="text-xs text-[#4c1d95] hover:underline">View full calendar →</Link>
           </div>
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             {data.calendarEvents.length === 0 ? (

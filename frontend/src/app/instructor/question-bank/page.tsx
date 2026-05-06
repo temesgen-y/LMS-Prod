@@ -224,7 +224,7 @@ export default function QuestionBankPage() {
       .from('questions')
       .select('id', { count: 'exact', head: true })
       .eq('assessment_id', exportAssessmentId)
-      .then(({ count }) => setExportCount(count ?? 0));
+      .then(({ count }: { count: number | null }) => setExportCount(count ?? 0));
   }, [exportAssessmentId]);
 
   // ── Export ──────────────────────────────────────────────────────────────────

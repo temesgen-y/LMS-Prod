@@ -206,7 +206,7 @@ export default function InstructorLessonsPage() {
       .select('id, title, sort_order')
       .eq('offering_id', form.offeringId)
       .order('sort_order', { ascending: true })
-      .then(({ data }) => {
+      .then(({ data }: { data: any }) => {
         const opts = (data ?? []).map((m: any) => ({ id: m.id, label: m.title }));
         setModules(opts);
         // Auto-select first module if none selected

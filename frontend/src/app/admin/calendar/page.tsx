@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 interface CalendarEvent {
@@ -98,9 +97,9 @@ function MonthGrid({ year, month, events, selectedDate, onSelectDate }: {
           const isSelected = dateStr === selectedDate;
           return (
             <button key={dateStr} type="button" onClick={() => onSelectDate(dateStr)}
-              className={`min-h-[80px] p-1.5 border-b border-r border-gray-50 text-left transition-colors hover:bg-purple-50/50 ${isSelected ? 'bg-purple-50 ring-2 ring-inset ring-purple-400' : ''}`}>
+              className={`min-h-[80px] p-1.5 border-b border-r border-gray-50 text-left transition-colors hover:bg-indigo-50/50 ${isSelected ? 'bg-indigo-50 ring-2 ring-inset ring-indigo-400' : ''}`}>
               <div className="mb-0.5">
-                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${isToday ? 'bg-purple-700 text-white' : 'text-gray-700'}`}>{day}</span>
+                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'}`}>{day}</span>
               </div>
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((e, ei) => (
@@ -118,30 +117,15 @@ function MonthGrid({ year, month, events, selectedDate, onSelectDate }: {
 
 type ViewMode = 'month' | 'list';
 
-export default function CalendarPage() {
-  const router = useRouter();
+export default function AdminCalendarPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [currentUserId, setCurrentUserId] = useState('');
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [terms, setTerms] = useState<Term[]>([]);
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedType, setSelectedType] = useState('');
-  const [showModal, setShowModal] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-
-  const [formData, setFormData] = useState({
-    event_name: '',
-    event_type: 'other',
-    event_date: '',
-    end_date: '',
-    description: '',
-    term_id: '',
-    applies_to: 'all',
-  });
-  const [formError, setFormError] = useState('');
-  const [formLoading, setFormLoading] = useState(false);
 
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -155,12 +139,6 @@ export default function CalendarPage() {
   const loadData = useCallback(async () => {
     try {
       const supabase = createClient();
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) { router.replace('/login'); return; }
-      const { data: currentUser } = await supabase.from('users').select('id').eq('auth_user_id', authUser.id).single();
-      if (!currentUser) return;
-      setCurrentUserId((currentUser as any).id);
-
       const [eventRes, termRes] = await Promise.all([
         supabase.from('academic_calendar')
           .select('id, event_name, event_type, event_date, end_date, description, academic_terms(id, term_name)')
@@ -185,7 +163,7 @@ export default function CalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -214,42 +192,12 @@ export default function CalendarPage() {
     });
   }, [events, selectedDate, selectedTerm, selectedType]);
 
-  const handleAddEvent = async () => {
-    if (!formData.event_name || !formData.event_date || !formData.term_id) {
-      setFormError('Please fill in event name, date, and term.');
-      return;
-    }
-    setFormLoading(true);
-    setFormError('');
-    try {
-      const supabase = createClient();
-      const { error: insertErr } = await supabase.from('academic_calendar').insert({
-        event_name: formData.event_name,
-        event_type: formData.event_type,
-        event_date: formData.event_date,
-        end_date: formData.end_date || null,
-        description: formData.description || null,
-        term_id: formData.term_id,
-        applies_to: formData.applies_to,
-        created_by: currentUserId,
-      });
-      if (insertErr) throw new Error(insertErr.message);
-      setShowModal(false);
-      setFormData({ event_name: '', event_type: 'other', event_date: '', end_date: '', description: '', term_id: '', applies_to: 'all' });
-      loadData();
-    } catch (e: any) {
-      setFormError(e.message ?? 'Failed to save');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
   const eventTypes = Object.keys(EVENT_TYPE_LABELS);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-700" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-700" />
       </div>
     );
   }
@@ -259,31 +207,22 @@ export default function CalendarPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Academic Calendar</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage university-wide academic events</p>
+          <p className="text-sm text-gray-500 mt-1">University-wide academic events and deadlines</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-gray-100 rounded-lg p-0.5">
-            <button type="button" onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'month' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Month</button>
-            <button type="button" onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>List</button>
-          </div>
-          <button
-            type="button"
-            onClick={() => { setShowModal(true); setFormError(''); }}
-            className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-sm font-medium"
-          >
-            + Add Event
-          </button>
+        <div className="flex bg-gray-100 rounded-lg p-0.5">
+          <button type="button" onClick={() => setViewMode('month')} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'month' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Month</button>
+          <button type="button" onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${viewMode === 'list' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>List</button>
         </div>
       </div>
 
       {error && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
 
       <div className="flex flex-wrap gap-3 items-center">
-        <select value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        <select value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="">All Terms</option>
           {terms.map(t => <option key={t.id} value={t.id}>{t.term_name}</option>)}
         </select>
-        <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+        <select value={selectedType} onChange={e => setSelectedType(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
           <option value="">All Types</option>
           {eventTypes.map(t => <option key={t} value={t} className="capitalize">{t.replace(/_/g, ' ')}</option>)}
         </select>
@@ -299,7 +238,7 @@ export default function CalendarPage() {
             <button type="button" onClick={nextMonth} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
-            <button type="button" onClick={goToday} className="px-3 py-1.5 text-xs font-semibold text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition-colors ml-1">Today</button>
+            <button type="button" onClick={goToday} className="px-3 py-1.5 text-xs font-semibold text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors ml-1">Today</button>
           </div>
           <MonthGrid year={viewYear} month={viewMonth} events={monthEvents} selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           {selectedDate && (
@@ -360,57 +299,6 @@ export default function CalendarPage() {
             ))}
           </div>
         )
-      )}
-
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h2 className="text-lg font-semibold text-gray-900">Add Calendar Event</h2>
-              <button type="button" onClick={() => setShowModal(false)} className="p-2 rounded hover:bg-gray-100">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              {formError && <div className="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">{formError}</div>}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Event Name *</label>
-                <input type="text" value={formData.event_name} onChange={e => setFormData(p => ({ ...p, event_name: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Term *</label>
-                <select value={formData.term_id} onChange={e => setFormData(p => ({ ...p, term_id: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-                  <option value="">Select term...</option>
-                  {terms.map(t => <option key={t.id} value={t.id}>{t.term_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Event Type</label>
-                <select value={formData.event_type} onChange={e => setFormData(p => ({ ...p, event_type: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-                  {eventTypes.map(t => <option key={t} value={t} className="capitalize">{t.replace(/_/g, ' ')}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Date *</label>
-                  <input type="date" value={formData.event_date} onChange={e => setFormData(p => ({ ...p, event_date: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                  <input type="date" value={formData.end_date} onChange={e => setFormData(p => ({ ...p, end_date: e.target.value }))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea value={formData.description} onChange={e => setFormData(p => ({ ...p, description: e.target.value }))} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={handleAddEvent} disabled={formLoading} className="flex-1 py-2 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-sm font-medium disabled:opacity-50">{formLoading ? 'Saving...' : 'Save Event'}</button>
-                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-              </div>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

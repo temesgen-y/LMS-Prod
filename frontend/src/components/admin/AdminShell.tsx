@@ -29,6 +29,7 @@ const navItems = [
   { href: '/admin/courses', label: 'Courses', icon: 'courses' },
   { href: '/admin/course-offerings', label: 'Course Offerings', icon: 'course-offerings' },
   { href: '/admin/course-instructors', label: 'Course Instructors', icon: 'course-instructors' },
+  { href: '/admin/calendar', label: 'Academic Calendar', icon: 'calendar' },
   { href: '/admin/admin-profiles', label: 'Admin Profiles', icon: 'admin-profiles' },
   { href: '/admin/announcements', label: 'Announcements', icon: 'announcements' },
   { href: '/admin/institution-settings', label: 'Institution Settings', icon: 'institution-settings' },
@@ -75,6 +76,7 @@ function Icon({ name, className }: { name: string; className?: string }) {
         </svg>
       );
     case 'academic-terms':
+    case 'calendar':
       return (
         <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
