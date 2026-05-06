@@ -111,14 +111,14 @@ export default function EnrollmentsPage() {
   // ── Load actor identity ──────────────────────────────────────────────────
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(({ data: { user } }: { data: { user: import('@supabase/supabase-js').User | null } }) => {
       if (!user) return;
       supabase
         .from('users')
         .select('id')
         .eq('auth_user_id', user.id)
         .single()
-        .then(({ data }) => { if (data) setActorUserId((data as { id: string }).id); });
+        .then(({ data }: { data: { id: string } | null }) => { if (data) setActorUserId(data.id); });
     });
   }, []);
 
@@ -215,7 +215,7 @@ export default function EnrollmentsPage() {
       return;
     }
     setOfferings(
-      (data ?? []).map((row) => ({
+      (data ?? []).map((row: any) => ({
         ...row,
         courses: Array.isArray(row.courses) ? (row.courses[0] ?? null) : row.courses,
         academic_terms: Array.isArray(row.academic_terms) ? (row.academic_terms[0] ?? null) : row.academic_terms,

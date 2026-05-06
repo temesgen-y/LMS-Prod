@@ -108,7 +108,7 @@ const [showGearMenu, setShowGearMenu] = useState(false);
           table: 'forum_posts',
           filter: `thread_id=eq.${threadId}`,
         },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           // Fetch the new post with full user data
           const { data: newPostData } = await supabase
             .from('forum_posts')

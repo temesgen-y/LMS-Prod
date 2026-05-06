@@ -92,7 +92,7 @@ export function useGroupMessages(groupId: string | null, userId: string | null) 
           table: 'study_group_messages',
           filter: `group_id=eq.${groupId}`,
         },
-        async (payload) => {
+        async (payload: { new: Record<string, unknown> }) => {
           const newMsg = await fetchFullMessage(payload.new.id as string);
           if (newMsg) {
             setMessages(prev => {

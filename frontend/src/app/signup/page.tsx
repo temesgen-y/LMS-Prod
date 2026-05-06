@@ -35,7 +35,7 @@ export default function SignUpPage() {
       .select('id, name')
       .eq('is_active', true)
       .order('name')
-      .then(({ data }) => {
+      .then(({ data }: { data: { id: string; name: string }[] | null }) => {
         if (data) setDepartments(data);
       });
     supabase
@@ -43,7 +43,7 @@ export default function SignUpPage() {
       .select('id, name')
       .eq('is_active', true)
       .order('name')
-      .then(({ data }) => {
+      .then(({ data }: { data: { id: string; name: string }[] | null }) => {
         if (data) setAcademicPrograms(data);
       });
   }, []);

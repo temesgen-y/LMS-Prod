@@ -50,8 +50,8 @@ export default function LoginPage() {
           setError('');
           window.history.replaceState(null, '', window.location.pathname + window.location.search);
         })
-        .catch((err) => {
-          setError(err?.message || 'Invalid or expired link. Please use the invite link from your email again.');
+        .catch((err: unknown) => {
+          setError((err as Error)?.message || 'Invalid or expired link. Please use the invite link from your email again.');
         });
     }
   }, []);

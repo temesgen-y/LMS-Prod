@@ -520,7 +520,7 @@ export default function MessagesPage({ role }: { role: 'student' | 'instructor' 
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `conversation_id=eq.${selectedConvId}`,
-      }, async (payload) => {
+      }, async (payload: { new: Record<string, unknown> }) => {
         await loadMessages(selectedConvId);
         if ((payload.new as { sender_id: string }).sender_id !== userId) {
           markAsRead(selectedConvId, userId);
