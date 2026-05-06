@@ -14,7 +14,7 @@ interface Student {
   program_name: string;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 function statusBadgeClass(status: string) {
   const map: Record<string, string> = {
