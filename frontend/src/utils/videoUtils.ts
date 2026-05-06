@@ -19,13 +19,17 @@ export const buildSafeYoutubeUrl = (videoId: string, origin?: string): string =>
     'iv_load_policy=3', // no annotations/cards
     'controls=1',       // keep play/pause/volume controls
     'playsinline=1',    // play inline on mobile
+    'modestbranding=1', // minimal branding
   ];
 
-  // origin tells YouTube which site is embedding — prevents "Sign in to
-  // confirm you're not a bot" false positives on the nocookie domain.
-  if (origin) params.push(`origin=${encodeURIComponent(origin)}`);
+  // origin prevents "Sign in to confirm you're not a bot" false positives.
+  // Only include for real domains — localhost triggers more suspicion, not less.
+  if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+    params.push(`origin=${encodeURIComponent(origin)}`);
+  }
 
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.join('&')}`;
+  // youtube.com/embed triggers far less bot-detection than youtube-nocookie.com
+  return `https://www.youtube.com/embed/${videoId}?${params.join('&')}`;
 };
 
 export const isYoutubeUrl = (url: string): boolean =>
