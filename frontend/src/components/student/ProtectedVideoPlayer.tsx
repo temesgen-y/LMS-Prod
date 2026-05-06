@@ -18,7 +18,7 @@ export default function ProtectedVideoPlayer({ url, title, onEnded }: Props) {
     if (isYoutubeUrl(url)) {
       const id = extractYoutubeId(url);
       if (id) {
-        setEmbedUrl(buildSafeYoutubeUrl(id));
+        setEmbedUrl(buildSafeYoutubeUrl(id, window.location.origin));
         setIsYT(true);
       }
     } else {

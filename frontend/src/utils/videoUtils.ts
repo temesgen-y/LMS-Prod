@@ -13,18 +13,19 @@ export const extractYoutubeId = (url: string): string | null => {
   return null;
 };
 
-export const buildSafeYoutubeUrl = (videoId: string): string => {
-  // showinfo=0 is deprecated and removed by YouTube — do NOT use it
-  // Use youtube-nocookie.com which strips tracking and reduces branding
-  const params = [
+export const buildSafeYoutubeUrl = (videoId: string, origin?: string): string => {
+  const params: string[] = [
     'rel=0',            // no related videos at end
-    'modestbranding=1', // minimal YouTube branding
     'iv_load_policy=3', // no annotations/cards
     'controls=1',       // keep play/pause/volume controls
-    'playsinline=1',    // play inline on mobile (no fullscreen auto)
-  ].join('&');
+    'playsinline=1',    // play inline on mobile
+  ];
 
-  return `https://www.youtube-nocookie.com/embed/${videoId}?${params}`;
+  // origin tells YouTube which site is embedding — prevents "Sign in to
+  // confirm you're not a bot" false positives on the nocookie domain.
+  if (origin) params.push(`origin=${encodeURIComponent(origin)}`);
+
+  return `https://www.youtube-nocookie.com/embed/${videoId}?${params.join('&')}`;
 };
 
 export const isYoutubeUrl = (url: string): boolean =>
@@ -56,7 +57,7 @@ export const preprocessRichTextHtml = (html: string): string => {
     if (!videoId) return;
 
     // Rewrite src — safe nocookie URL with correct params
-    iframe.setAttribute('src', buildSafeYoutubeUrl(videoId));
+    iframe.setAttribute('src', buildSafeYoutubeUrl(videoId, window.location.origin));
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
     iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
