@@ -237,16 +237,56 @@ export default function AttendancePage() {
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
+  const exportAttendanceCSV = () => {
+    const headers = ['Student', 'Session / Lesson', 'Type', 'Status', 'Date', 'Note'];
+    const csvRows = [
+      headers.join(','),
+      ...filtered.map(r => [
+        `"${r.student_name ?? ''}"`,
+        `"${r.session_title ?? ''}"`,
+        r.type === 'live_session' ? 'Live Session' : 'Lesson',
+        r.status,
+        r.attendance_date,
+        `"${(r.note ?? '').replace(/"/g, '""')}"`,
+      ].join(',')),
+    ];
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Attendance</h1>
-        <button onClick={openAdd} className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90">
-          + Mark Attendance
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          {filtered.length > 0 && (
+            <>
+              <button
+                onClick={exportAttendanceCSV}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Export CSV
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Print PDF
+              </button>
+            </>
+          )}
+          <button onClick={openAdd} className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90">
+            + Mark Attendance
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="flex flex-wrap gap-3 mb-4 no-print">
         <select value={filterOffering} onChange={e => { setFilterOffering(e.target.value); setPage(1); }} className="border border-gray-300 rounded-lg px-3 py-2 text-sm">
           <option value="">All Offerings</option>
           {offerings.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
@@ -270,14 +310,15 @@ export default function AttendancePage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Student', 'Session / Lesson', 'Type', 'Status', 'Date', 'Note', 'Actions'].map(h => (
+                  {['Student', 'Session / Lesson', 'Type', 'Status', 'Date', 'Note'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">{h}</th>
                   ))}
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase no-print">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {paginated.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No attendance records found</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">No attendance records found</td></tr>
                 ) : paginated.map(row => (
                   <tr key={row.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{row.student_name}</td>
@@ -294,7 +335,7 @@ export default function AttendancePage() {
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{row.attendance_date}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px] truncate">{row.note || '—'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 no-print">
                       <div className="flex gap-2">
                         <button onClick={() => openEdit(row)} className="text-blue-600 hover:underline text-xs">Edit</button>
                         <button onClick={() => setDeleteTarget(row)} className="text-red-500 hover:underline text-xs">Delete</button>
@@ -306,7 +347,7 @@ export default function AttendancePage() {
             </table>
           </div>
           {totalPages > 1 && (
-            <div className="flex justify-end gap-2 mt-4">
+            <div className="flex justify-end gap-2 mt-4 no-print">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Prev</button>
               <span className="px-3 py-1 text-sm text-gray-600">{page}/{totalPages}</span>
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="px-3 py-1 rounded border text-sm disabled:opacity-40">Next</button>
