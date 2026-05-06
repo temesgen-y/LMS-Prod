@@ -176,9 +176,9 @@ export default function FeesPage() {
         student_no:   a.users?.student_profiles?.student_no ?? '',
         term_name:    a.academic_terms?.term_name ?? '—',
         term_id:      a.academic_terms?.id ?? '',
-        total_amount: a.total_amount,
-        paid_amount:  a.paid_amount,
-        balance:      a.balance,
+        total_amount: a.total_amount ?? 0,
+        paid_amount:  a.paid_amount ?? 0,
+        balance:      a.balance ?? 0,
         status:       a.status,
         due_date:     a.due_date,
       })));
