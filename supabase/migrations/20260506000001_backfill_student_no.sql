@@ -1,6 +1,9 @@
+-- Add missing updated_at column to student_profiles (trigger expects it).
+ALTER TABLE public.student_profiles
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
 -- Backfill student_no for student_profiles rows where it is NULL.
 -- Uses the same format as the approve_student_registration RPC: STU-{YYYY}-{NNNN}
--- Year is taken from the users.created_at timestamp so numbering is consistent.
 
 DO $$
 DECLARE
@@ -18,7 +21,6 @@ BEGIN
   LOOP
     v_year := to_char(rec.created_at, 'YYYY');
 
-    -- Find the next available sequence for this year (lock to avoid races)
     SELECT COALESCE(
       MAX(CAST(SPLIT_PART(student_no, '-', 3) AS integer)), 0
     ) + 1
