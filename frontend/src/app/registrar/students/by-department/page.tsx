@@ -12,11 +12,10 @@ interface Student {
   last_name: string;
   email: string;
   status: string;
-  program_name: string;
+  program: string; // raw text value stored at signup = department name
 }
 
-interface Department {
-  id: string;
+interface DeptGroup {
   name: string;
   students: Student[];
 }
@@ -35,10 +34,10 @@ export default function ByDepartmentPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>('all');
+  const [groups, setGroups] = useState<DeptGroup[]>([]);
+  const [selectedDept, setSelectedDept] = useState('all');
   const [search, setSearch] = useState('');
-  const [expandedDepts, setExpandedDepts] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const load = async () => {
@@ -47,61 +46,48 @@ export default function ByDepartmentPage() {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (!authUser) { router.replace('/login'); return; }
 
-        // Load departments, programs, and students in parallel
-        const [{ data: deptData }, { data: progData }, { data: studentData }] = await Promise.all([
-          supabase.from('departments').select('id, name').eq('is_active', true).order('name'),
-          supabase.from('academic_programs').select('id, name, department_id').eq('is_active', true),
-          supabase
-            .from('users')
-            .select('id, first_name, last_name, email, status, student_profiles!user_id(student_no, program)')
-            .eq('role', 'student')
-            .order('last_name'),
-        ]);
+        const { data, error: err } = await supabase
+          .from('users')
+          .select('id, first_name, last_name, email, status, student_profiles!user_id(student_no, program)')
+          .eq('role', 'student')
+          .order('last_name');
 
-        // Build program → department map
-        const programMap: Record<string, { name: string; department_id: string }> = {};
-        ((progData ?? []) as any[]).forEach(p => {
-          programMap[p.id] = { name: p.name, department_id: p.department_id };
-        });
+        if (err) throw new Error(err.message);
 
-        // Build department → students map
-        const deptStudentMap: Record<string, Student[]> = {};
-        ((deptData ?? []) as any[]).forEach(d => { deptStudentMap[d.id] = []; });
-        const unassigned: Student[] = [];
-
-        ((studentData ?? []) as any[]).forEach(u => {
-          const programId = u.student_profiles?.program;
-          const prog = programId ? programMap[programId] : null;
-          const student: Student = {
-            id: u.id,
-            student_no: u.student_profiles?.student_no ?? '',
-            first_name: u.first_name ?? '',
-            last_name: u.last_name ?? '',
-            email: u.email ?? '',
-            status: u.status ?? 'active',
-            program_name: prog?.name ?? '—',
-          };
-
-          if (prog?.department_id && deptStudentMap[prog.department_id] !== undefined) {
-            deptStudentMap[prog.department_id].push(student);
-          } else {
-            unassigned.push(student);
-          }
-        });
-
-        const depts: Department[] = ((deptData ?? []) as any[]).map(d => ({
-          id: d.id,
-          name: d.name,
-          students: deptStudentMap[d.id] ?? [],
+        const students: Student[] = ((data ?? []) as any[]).map(u => ({
+          id: u.id,
+          student_no: u.student_profiles?.student_no ?? '',
+          first_name: u.first_name ?? '',
+          last_name: u.last_name ?? '',
+          email: u.email ?? '',
+          status: u.status ?? 'active',
+          program: u.student_profiles?.program ?? '',
         }));
 
-        if (unassigned.length > 0) {
-          depts.push({ id: '__unassigned__', name: 'Unassigned / No Department', students: unassigned });
+        // Group by student_profiles.program (which stores the department name at signup)
+        const map: Record<string, Student[]> = {};
+        const unassigned: Student[] = [];
+
+        for (const s of students) {
+          const key = s.program.trim();
+          if (!key) {
+            unassigned.push(s);
+          } else {
+            if (!map[key]) map[key] = [];
+            map[key].push(s);
+          }
         }
 
-        setDepartments(depts);
-        // Expand all by default
-        setExpandedDepts(new Set(depts.map(d => d.id)));
+        const result: DeptGroup[] = Object.entries(map)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, students]) => ({ name, students }));
+
+        if (unassigned.length > 0) {
+          result.push({ name: 'Unassigned / No Department', students: unassigned });
+        }
+
+        setGroups(result);
+        setExpanded(new Set(result.map(g => g.name)));
       } catch (e: any) {
         setError(e.message ?? 'Failed to load data');
       } finally {
@@ -111,26 +97,25 @@ export default function ByDepartmentPage() {
     load();
   }, [router]);
 
-  const toggleDept = (id: string) => {
-    setExpandedDepts(prev => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
+  const toggle = (name: string) =>
+    setExpanded(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
 
-  const allStudents = departments.flatMap(d => d.students);
+  const allStudents = groups.flatMap(g => g.students);
 
-  const visibleDepts = departments.filter(d => {
-    if (selectedDeptId !== 'all' && d.id !== selectedDeptId) return false;
-    if (!search.trim()) return d.students.length > 0;
+  const matchSearch = (s: Student) => {
+    if (!search.trim()) return true;
     const q = search.toLowerCase();
-    return d.students.some(s =>
+    return (
       `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) ||
       s.student_no.toLowerCase().includes(q) ||
       s.email.toLowerCase().includes(q)
     );
-  });
+  };
+
+  const visibleGroups = groups
+    .filter(g => selectedDept === 'all' || g.name === selectedDept)
+    .map(g => ({ ...g, students: g.students.filter(matchSearch) }))
+    .filter(g => g.students.length > 0);
 
   if (loading) {
     return (
@@ -146,40 +131,40 @@ export default function ByDepartmentPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Students by Department</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{allStudents.length} students across {departments.filter(d => d.students.length > 0).length} departments</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {allStudents.length} students across {groups.filter(g => g.name !== 'Unassigned / No Department').length} departments
+          </p>
         </div>
-        <Link href="/registrar/students" className="text-sm text-purple-700 hover:underline">
-          ← All Students
-        </Link>
+        <Link href="/registrar/students" className="text-sm text-purple-700 hover:underline">← All Students</Link>
       </div>
 
       {error && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm mb-4">{error}</div>}
 
-      {/* Department filter cards */}
+      {/* Department filter buttons */}
       <div className="flex flex-wrap gap-2 mb-5">
         <button
           type="button"
-          onClick={() => setSelectedDeptId('all')}
+          onClick={() => setSelectedDept('all')}
           className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-            selectedDeptId === 'all'
+            selectedDept === 'all'
               ? 'bg-purple-700 text-white border-purple-700'
               : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
           }`}
         >
           All ({allStudents.length})
         </button>
-        {departments.filter(d => d.students.length > 0).map(d => (
+        {groups.map(g => (
           <button
-            key={d.id}
+            key={g.name}
             type="button"
-            onClick={() => setSelectedDeptId(d.id)}
+            onClick={() => setSelectedDept(g.name)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-              selectedDeptId === d.id
+              selectedDept === g.name
                 ? 'bg-purple-700 text-white border-purple-700'
                 : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
             }`}
           >
-            {d.name} ({d.students.length})
+            {g.name} ({g.students.length})
           </button>
         ))}
       </div>
@@ -195,39 +180,26 @@ export default function ByDepartmentPage() {
         />
       </div>
 
-      {/* Department accordion sections */}
-      {visibleDepts.length === 0 ? (
+      {/* Accordion groups */}
+      {visibleGroups.length === 0 ? (
         <div className="bg-white border border-gray-200 rounded-xl p-12 text-center text-gray-400 text-sm">
           No students match the current filter.
         </div>
       ) : (
         <div className="space-y-3">
-          {visibleDepts.map(dept => {
-            const deptStudents = search.trim()
-              ? dept.students.filter(s => {
-                  const q = search.toLowerCase();
-                  return (
-                    `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) ||
-                    s.student_no.toLowerCase().includes(q) ||
-                    s.email.toLowerCase().includes(q)
-                  );
-                })
-              : dept.students;
-
-            if (deptStudents.length === 0) return null;
-            const isOpen = expandedDepts.has(dept.id);
-
+          {visibleGroups.map(group => {
+            const isOpen = expanded.has(group.name);
             return (
-              <div key={dept.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div key={group.name} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => toggleDept(dept.id)}
+                  onClick={() => toggle(group.name)}
                   className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 text-left"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="font-semibold text-gray-900">{dept.name}</span>
+                    <span className="font-semibold text-gray-900">{group.name}</span>
                     <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                      {deptStudents.length} student{deptStudents.length !== 1 ? 's' : ''}
+                      {group.students.length} student{group.students.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                   <svg
@@ -245,24 +217,20 @@ export default function ByDepartmentPage() {
                         <tr>
                           <th className="px-5 py-3 text-left font-medium">#</th>
                           <th className="px-5 py-3 text-left font-medium">Student</th>
-                          <th className="px-5 py-3 text-left font-medium">Program</th>
                           <th className="px-5 py-3 text-left font-medium">Email</th>
                           <th className="px-5 py-3 text-left font-medium">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {deptStudents.map((s, idx) => (
+                        {group.students.map((s, idx) => (
                           <tr key={s.id} className="hover:bg-gray-50">
                             <td className="px-5 py-3 text-gray-400 text-xs">{idx + 1}</td>
                             <td className="px-5 py-3">
                               <Link href={`/registrar/students/${s.id}`} className="font-medium text-gray-900 hover:text-purple-700">
                                 {s.first_name} {s.last_name}
                               </Link>
-                              {s.student_no && (
-                                <div className="text-xs text-gray-400">{s.student_no}</div>
-                              )}
+                              {s.student_no && <div className="text-xs text-gray-400">{s.student_no}</div>}
                             </td>
-                            <td className="px-5 py-3 text-gray-600 text-xs">{s.program_name}</td>
                             <td className="px-5 py-3 text-gray-500 text-xs">{s.email}</td>
                             <td className="px-5 py-3">
                               <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusBadge(s.status)}`}>
