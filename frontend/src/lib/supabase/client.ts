@@ -1,14 +1,19 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { getSupabaseEnv } from './env';
 
-// Module-level singleton — avoids multiple browser clients competing for
-// the same Supabase session Web Lock ("Lock broken by another request
-// with the 'steal' option").
-let _client: ReturnType<typeof createBrowserClient> | null = null;
+// Persist the singleton on globalThis so it survives Next.js HMR module
+// reloads in development. Without this, each hot-reload resets the
+// module-level variable to null, creates a new createBrowserClient()
+// instance, which steals the Supabase session Web Lock from the previous
+// instance → "Lock broken by another request with the 'steal' option".
+declare global {
+  // eslint-disable-next-line no-var
+  var _supabaseBrowserClient: ReturnType<typeof createBrowserClient> | undefined;
+}
 
 export function createClient() {
-  if (_client) return _client;
+  if (globalThis._supabaseBrowserClient) return globalThis._supabaseBrowserClient;
   const { url, anonKey } = getSupabaseEnv();
-  _client = createBrowserClient(url, anonKey);
-  return _client;
+  globalThis._supabaseBrowserClient = createBrowserClient(url, anonKey);
+  return globalThis._supabaseBrowserClient;
 }
