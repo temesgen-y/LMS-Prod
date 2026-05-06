@@ -46,6 +46,7 @@ const navSections: NavSection[] = [
       { href: '/registrar/standing',                label: 'Academic Standing' },
       { href: '/registrar/students/at-risk',        label: 'At-Risk Students' },
       { href: '/registrar/reports',                 label: 'Enrollment Reports' },
+      { href: '/registrar/transcripts',             label: 'Transcripts' },
     ],
   },
   {
