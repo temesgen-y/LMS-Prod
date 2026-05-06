@@ -14,6 +14,8 @@ interface Student {
   program_name: string;
 }
 
+const PAGE_SIZE = 20;
+
 function statusBadgeClass(status: string) {
   const map: Record<string, string> = {
     active: 'bg-green-100 text-green-800',
@@ -30,6 +32,7 @@ export default function StudentsPage() {
   const [error, setError] = useState('');
   const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
   const loadData = useCallback(async () => {
     try {
@@ -66,6 +69,9 @@ export default function StudentsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Reset to page 1 whenever search changes
+  useEffect(() => { setPage(1); }, [search]);
+
   const filtered = students.filter(s => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -75,6 +81,9 @@ export default function StudentsPage() {
       s.email.toLowerCase().includes(q)
     );
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   if (loading) {
     return (
@@ -97,7 +106,9 @@ export default function StudentsPage() {
           onChange={e => setSearch(e.target.value)}
           className="w-full sm:w-96 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
-        <span className="ml-4 text-sm text-gray-500">{filtered.length} students</span>
+        <span className="ml-4 text-sm text-gray-500 whitespace-nowrap">
+          {filtered.length} student{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -119,9 +130,9 @@ export default function StudentsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filtered.map(s => (
+                {paginated.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
-                    <td className="px-5 py-3 font-mono text-gray-700">{s.student_no}</td>
+                    <td className="px-5 py-3 font-mono text-gray-700 text-xs">{s.student_no}</td>
                     <td className="px-5 py-3 font-medium text-gray-900">{s.first_name} {s.last_name}</td>
                     <td className="px-5 py-3 text-gray-600">{s.program_name}</td>
                     <td className="px-5 py-3 text-gray-600">{s.email}</td>
@@ -146,6 +157,74 @@ export default function StudentsPage() {
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-sm text-gray-500">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+              className="px-2 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              «
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ‹ Prev
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 2)
+              .reduce<(number | '...')[]>((acc, n, i, arr) => {
+                if (i > 0 && n - (arr[i - 1] as number) > 1) acc.push('...');
+                acc.push(n);
+                return acc;
+              }, [])
+              .map((n, i) =>
+                n === '...' ? (
+                  <span key={`ellipsis-${i}`} className="px-2 py-1.5 text-sm text-gray-400">…</span>
+                ) : (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setPage(n as number)}
+                    className={`px-3 py-1.5 rounded text-sm font-medium ${
+                      page === n
+                        ? 'bg-purple-700 text-white'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                )
+              )}
+            <button
+              type="button"
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next ›
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+              className="px-2 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              »
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
