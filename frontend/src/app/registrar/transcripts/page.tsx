@@ -105,7 +105,7 @@ export default function RegistrarTranscriptsPage() {
       const rows: StudentOption[] = ((data ?? []) as any[]).map(u => ({
         id: u.id,
         name: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim(),
-        studentNo: u.student_profiles?.student_no ?? '—',
+        studentNo: u.student_profiles?.student_no ?? '',
         program: u.student_profiles?.program ?? '—',
       }));
       setAllStudents(rows);
@@ -220,7 +220,7 @@ export default function RegistrarTranscriptsPage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6 no-print">
         <h1 className="text-2xl font-bold text-gray-900">Student Transcripts</h1>
-        {selectedStudent && terms.length > 0 && (
+        {selectedStudent && !transcriptLoading && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -278,7 +278,7 @@ export default function RegistrarTranscriptsPage() {
                     }`}
                   >
                     <p className="font-medium text-gray-900 text-sm truncate">{s.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{s.studentNo}</p>
+                    {s.studentNo && <p className="text-xs text-gray-400 mt-0.5">{s.studentNo}</p>}
                   </button>
                 ))
               )}
