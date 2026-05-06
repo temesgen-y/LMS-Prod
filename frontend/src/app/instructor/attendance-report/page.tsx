@@ -19,6 +19,24 @@ interface Offering {
   label: string;
 }
 
+function exportAttendanceCSV(rows: AttendanceRow[], offeringLabel: string) {
+  const header = ['#', 'First Name', 'Last Name', 'Student No', 'Present', 'Absent', 'Total', 'Rate (%)'];
+  const dataRows = rows.map((r, i) => [
+    String(i + 1), r.firstName, r.lastName, r.studentNo,
+    String(r.present), String(r.absent), String(r.total), String(r.rate),
+  ]);
+  const csv = [header, ...dataRows]
+    .map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `attendance-${offeringLabel.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function AttendanceReportPage() {
   const [offerings, setOfferings] = useState<Offering[]>([]);
   const [selectedOffering, setSelectedOffering] = useState<string>('');
@@ -124,8 +142,32 @@ export default function AttendanceReportPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Attendance Report</h1>
-      <p className="text-sm text-gray-500 mb-6">Per-student attendance summary by course</p>
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Attendance Report</h1>
+          <p className="text-sm text-gray-500">Per-student attendance summary by course</p>
+        </div>
+        {rows.length > 0 && (
+          <div className="flex items-center gap-2 no-print">
+            <button
+              type="button"
+              onClick={() => exportAttendanceCSV(rows, offerings.find(o => o.id === selectedOffering)?.label ?? selectedOffering)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+              Print PDF
+            </button>
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-48">
@@ -133,7 +175,7 @@ export default function AttendanceReportPage() {
         </div>
       ) : (
         <>
-          <div className="mb-5">
+          <div className="mb-5 no-print">
             <select
               value={selectedOffering}
               onChange={e => setSelectedOffering(e.target.value)}

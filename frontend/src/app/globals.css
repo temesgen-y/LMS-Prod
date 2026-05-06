@@ -146,6 +146,28 @@ body {
 }
 .announcement-body div { margin: 0.5em 0; }
 
+/* ─── Print styles ──────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide portal shell chrome (header bar + sidebar) */
+  header, aside { display: none !important; }
+  /* Hide explicitly-marked no-print elements */
+  .no-print { display: none !important; }
+  /* Remove scroll/overflow constraints so full content renders */
+  html, body { overflow: visible !important; height: auto !important; }
+  main {
+    width: 100% !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+  /* Remove max-width constraints */
+  .max-w-4xl, .max-w-6xl, .max-w-7xl { max-width: none !important; }
+  /* Keep table rows together */
+  tr { page-break-inside: avoid; }
+  /* Print background colors (badges, status pills) */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
+
 /* Login page: aerial dusk/sunset look — purple/orange gradient (optional bg image via url) */
 .login-page-bg {
   background-image: linear-gradient(

@@ -190,14 +190,26 @@ export default function FeeAccountPage() {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
 
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-sm text-gray-500">
-          <Link href="/dashboard" className="hover:text-purple-700">Home</Link>
-          <span>›</span>
-          <Link href="/dashboard/profile" className="hover:text-purple-700">My Profile</Link>
-          <span>›</span>
-          <span className="text-gray-900 font-medium">Fee Account</span>
-        </nav>
+        {/* Breadcrumb + Print */}
+        <div className="flex items-center justify-between no-print">
+          <nav className="flex items-center gap-2 text-sm text-gray-500">
+            <Link href="/dashboard" className="hover:text-purple-700">Home</Link>
+            <span>›</span>
+            <Link href="/dashboard/profile" className="hover:text-purple-700">My Profile</Link>
+            <span>›</span>
+            <span className="text-gray-900 font-medium">Fee Account</span>
+          </nav>
+          {accounts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-[#4c1d95] text-white text-sm font-medium rounded-lg hover:bg-[#5b21b6] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+              Print Statement
+            </button>
+          )}
+        </div>
 
         <h1 className="text-2xl font-bold text-gray-900">Fee Account</h1>
 
@@ -250,7 +262,7 @@ export default function FeeAccountPage() {
 
             {/* Pay with Chapa button */}
             {currentAccount.balance > 0 && currentAccount.status !== 'paid' && currentAccount.status !== 'waived' && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
+              <div className="mt-4 pt-4 border-t border-gray-100 no-print">
                 {payError && (
                   <p className="text-xs text-red-600 mb-2">{payError}</p>
                 )}
@@ -366,7 +378,7 @@ export default function FeeAccountPage() {
         )}
 
         {/* Contact info box */}
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-sm text-gray-600 space-y-1">
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-5 text-sm text-gray-600 space-y-1 no-print">
           <p className="font-semibold text-gray-800">For payment or fee inquiries:</p>
           <p>Visit the Registrar Office or contact your academic advisor.</p>
         </div>
