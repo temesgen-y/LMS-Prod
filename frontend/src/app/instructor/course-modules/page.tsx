@@ -777,6 +777,7 @@ function CourseContentInner() {
         <AddLessonModal
           moduleId={addLessonModule.id}
           moduleName={addLessonModule.name}
+          offeringId={activeOfferingId}
           onClose={() => setAddLessonModule(null)}
           onSuccess={() => {
             fetchModules(activeOfferingId);

@@ -24,6 +24,7 @@ interface ModuleOption {
 export interface AddLessonModalProps {
   moduleId?: string;    // pre-fills and locks module field
   moduleName?: string;  // shown when locked
+  offeringId?: string;  // locks course dropdown when moduleId is provided
   onClose: () => void;
   onSuccess: (lesson: Lesson) => void;
   onOpenAddModule?: () => void; // optional: opens AddModuleModal
@@ -54,13 +55,17 @@ function offeringLabel(o: OfferingDetails): string {
 export default function AddLessonModal({
   moduleId: lockedModuleId,
   moduleName: lockedModuleName,
+  offeringId: lockedOfferingId,
   onClose,
   onSuccess,
   onOpenAddModule,
 }: AddLessonModalProps) {
   const { activeOfferingId, allOfferings } = useInstructorCourse();
 
-  const [selectedOfferingId, setSelectedOfferingId] = useState(activeOfferingId);
+  // When a module is locked, also lock the offering to match it.
+  const effectiveDefault = lockedOfferingId ?? activeOfferingId;
+  const [selectedOfferingId, setSelectedOfferingId] = useState(effectiveDefault);
+  const isOfferingLocked = !!lockedModuleId && !!lockedOfferingId;
   const [modules, setModules] = useState<ModuleOption[]>([]);
   const [selectedModuleId, setSelectedModuleId] = useState(lockedModuleId ?? '');
   const [loadingModules, setLoadingModules] = useState(false);
@@ -86,12 +91,12 @@ export default function AddLessonModal({
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Sync activeOfferingId
+  // Sync to the locked/active offering if not yet set
   useEffect(() => {
-    if (!selectedOfferingId && activeOfferingId) {
-      setSelectedOfferingId(activeOfferingId);
+    if (!selectedOfferingId) {
+      setSelectedOfferingId(lockedOfferingId ?? activeOfferingId);
     }
-  }, [activeOfferingId, selectedOfferingId]);
+  }, [activeOfferingId, lockedOfferingId, selectedOfferingId]);
 
   // Load modules for offering
   const loadModules = useCallback(async (offeringId: string) => {
@@ -248,18 +253,30 @@ export default function AddLessonModal({
               <label htmlFor="al-offering" className="block text-sm font-medium text-gray-700 mb-1">
                 Course <span className="text-red-500">*</span>
               </label>
-              <select
-                id="al-offering"
-                value={selectedOfferingId}
-                onChange={(e) => handleOfferingChange(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-              >
-                {allOfferings.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {offeringLabel(o)}
-                  </option>
-                ))}
-              </select>
+              {isOfferingLocked ? (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 flex items-center gap-2">
+                  <span>📚</span>
+                  <span className="flex-1 truncate">
+                    {allOfferings.find(o => o.id === selectedOfferingId)
+                      ? offeringLabel(allOfferings.find(o => o.id === selectedOfferingId)!)
+                      : selectedOfferingId}
+                  </span>
+                  <span className="text-xs text-gray-400 shrink-0">(locked)</span>
+                </div>
+              ) : (
+                <select
+                  id="al-offering"
+                  value={selectedOfferingId}
+                  onChange={(e) => handleOfferingChange(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                >
+                  {allOfferings.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {offeringLabel(o)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
 
             {/* Module */}
