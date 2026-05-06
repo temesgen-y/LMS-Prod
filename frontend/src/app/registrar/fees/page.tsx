@@ -173,7 +173,7 @@ export default function FeesPage() {
         id:           a.id,
         student_id:   a.student_id,
         student_name: a.users ? `${a.users.first_name ?? ''} ${a.users.last_name ?? ''}`.trim() : 'Unknown',
-        student_no:   a.users?.student_profiles?.student_no ?? '—',
+        student_no:   a.users?.student_profiles?.student_no ?? '',
         term_name:    a.academic_terms?.term_name ?? '—',
         term_id:      a.academic_terms?.id ?? '',
         total_amount: a.total_amount,
@@ -540,7 +540,7 @@ export default function FeesPage() {
                   <tr key={a.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{a.student_name}</div>
-                      {a.student_no && a.student_no !== '—' && (
+                      {a.student_no && (
                         <div className="text-xs text-gray-500">{a.student_no}</div>
                       )}
                     </td>
