@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { GradeBadge } from '@/components/shared/GradeBadge';
+import { getLetterGrade, getGradeColor } from '@/utils/gradeCalculator';
+import { fetchGradeWeights, computeCategoryBreakdown, type GradeWeights, type CategoryBreakdown } from '@/utils/weightedGrade';
 
 type GradeItem = {
   id         : string;
@@ -24,10 +26,12 @@ export default function ClassGradebookPage() {
   const params     = useParams();
   const offeringId = params?.id as string;
 
-  const [items, setItems]         = useState<GradeItem[]>([]);
+  const [items, setItems]           = useState<GradeItem[]>([]);
   const [finalGrade, setFinalGrade] = useState<string | null>(null);
   const [finalScore, setFinalScore] = useState<number | null>(null);
-  const [loading, setLoading]     = useState(true);
+  const [loading, setLoading]       = useState(true);
+  const [weights, setWeights]       = useState<GradeWeights | null>(null);
+  const [breakdown, setBreakdown]   = useState<CategoryBreakdown | null>(null);
 
   useEffect(() => {
     if (!offeringId) return;
@@ -64,19 +68,36 @@ export default function ClassGradebookPage() {
         .eq('enrollment_id', enrollmentId)
         .order('recorded_at', { ascending: false });
 
-      setItems(
-        ((gbRows ?? []) as any[]).map(r => ({
-          id         : r.id,
-          itemTitle  : r.assessment_id
-            ? (r.assessments?.title ?? 'Assessment')
-            : (r.assignments?.title ?? 'Assignment'),
-          itemType   : r.assessment_id ? (r.assessments?.type ?? 'assessment') : 'assignment',
-          rawScore   : r.raw_score,
-          totalMarks : r.total_marks ?? 0,
-          isOverridden: !!r.is_overridden,
-          recordedAt : r.recorded_at,
-        }))
-      );
+      const mappedItems: GradeItem[] = ((gbRows ?? []) as any[]).map(r => ({
+        id         : r.id,
+        itemTitle  : r.assessment_id
+          ? (r.assessments?.title ?? 'Assessment')
+          : (r.assignments?.title ?? 'Assignment'),
+        itemType   : r.assessment_id ? (r.assessments?.type ?? 'assessment') : 'assignment',
+        rawScore   : r.raw_score,
+        totalMarks : r.total_marks ?? 0,
+        isOverridden: !!r.is_overridden,
+        recordedAt : r.recorded_at,
+      }));
+      setItems(mappedItems);
+
+      // Load grade weights and compute running grade
+      const w = await fetchGradeWeights(supabase, offeringId);
+      setWeights(w);
+      if (w) {
+        const { data: attRows } = await supabase
+          .from('attendance')
+          .select('status')
+          .eq('enrollment_id', enrollmentId);
+        const gbForCalc = mappedItems.map(i => ({
+          raw_score: i.rawScore,
+          total_marks: i.totalMarks,
+          assessment_id: i.itemType !== 'assignment' ? i.id : null,
+          assignment_id: i.itemType === 'assignment' ? i.id : null,
+        }));
+        setBreakdown(computeCategoryBreakdown(gbForCalc, (attRows ?? []) as any[], w));
+      }
+
       setLoading(false);
     })();
   }, [offeringId]);
@@ -109,6 +130,48 @@ export default function ClassGradebookPage() {
         </div>
       ) : (
         <>
+          {/* ── Running Grade Banner (weighted) ── */}
+          {weights && breakdown && (
+            <div className="bg-gradient-to-r from-[#4c1d95] to-[#7c3aed] text-white rounded-xl px-6 py-5 mb-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-medium opacity-70 mb-1 uppercase tracking-wide">Running Grade</p>
+                  <div className="flex items-end gap-3">
+                    <span className={`text-5xl font-black tracking-tight`}>
+                      {getLetterGrade(breakdown.weightedScore)}
+                    </span>
+                    <span className="text-2xl font-semibold opacity-90 mb-0.5">
+                      {breakdown.weightedScore.toFixed(1)}%
+                    </span>
+                  </div>
+                  {breakdown.coveredWeightPct < 100 && (
+                    <p className="text-xs opacity-60 mt-1.5">
+                      Based on {breakdown.coveredWeightPct.toFixed(0)}% of your final grade
+                      {breakdown.coveredWeightPct < 100 && ' — remaining categories not yet recorded'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Category breakdown */}
+                <div className="flex gap-4 flex-wrap">
+                  {[
+                    { label: 'Assessments', pct: breakdown.assessmentPct, weight: weights.assessments_weight },
+                    { label: 'Assignments', pct: breakdown.assignmentPct, weight: weights.assignments_weight },
+                    { label: 'Attendance',  pct: breakdown.attendancePct, weight: weights.attendance_weight },
+                  ].map(cat => (
+                    <div key={cat.label} className="bg-white/15 rounded-lg px-4 py-3 text-center min-w-[90px]">
+                      <p className="text-xs opacity-70 mb-1">{cat.label}</p>
+                      <p className="text-lg font-bold">
+                        {cat.pct !== null ? `${cat.pct.toFixed(1)}%` : <span className="text-sm font-normal opacity-50">N/A</span>}
+                      </p>
+                      <p className="text-[10px] opacity-60 mt-0.5">weight: {cat.weight}%</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Summary cards */}
           <div className="flex flex-wrap gap-4 mb-6">
             <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 min-w-[150px]">

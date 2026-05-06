@@ -5,6 +5,11 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { getGradeColor, getLetterGrade } from '@/utils/gradeCalculator';
+import {
+  fetchGradeWeights, saveGradeWeights, recalculateAllWithWeights,
+  type GradeWeights,
+} from '@/utils/weightedGrade';
+import { toast } from 'sonner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,6 +85,13 @@ export default function InstructorGradebookPage() {
   const [search, setSearch]           = useState('');
   const [page, setPage]               = useState(1);
   const PAGE_SIZE = 10;
+
+  // Grade weights
+  const [weights, setWeights]             = useState<GradeWeights | null>(null);
+  const [weightForm, setWeightForm]       = useState<GradeWeights>({ assessments_weight: 40, assignments_weight: 30, attendance_weight: 30 });
+  const [weightsOpen, setWeightsOpen]     = useState(false);
+  const [weightsSaving, setWeightsSaving] = useState(false);
+  const [recalculating, setRecalculating] = useState(false);
 
   const load = useCallback(async () => {
     if (!offeringId) return;
@@ -188,6 +200,12 @@ export default function InstructorGradebookPage() {
     });
 
     setStudents(rows);
+
+    // Load grade weights for this offering
+    const w = await fetchGradeWeights(supabase, offeringId);
+    setWeights(w);
+    if (w) setWeightForm(w);
+
     setLoading(false);
   }, [offeringId]);
 
@@ -202,6 +220,25 @@ export default function InstructorGradebookPage() {
   const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage    = Math.min(page, totalPages);
   const pageStudents = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  // ── Grade weight handlers ─────────────────────────────────────────────────
+  const handleSaveWeights = async () => {
+    const sum = weightForm.assessments_weight + weightForm.assignments_weight + weightForm.attendance_weight;
+    if (Math.abs(sum - 100) > 0.01) { toast.error(`Weights must sum to 100 (currently ${sum.toFixed(1)})`); return; }
+    setWeightsSaving(true);
+    const err = await saveGradeWeights(createClient(), offeringId, weightForm);
+    if (err) { toast.error(err); } else { setWeights(weightForm); toast.success('Grade weights saved'); }
+    setWeightsSaving(false);
+  };
+
+  const handleRecalculateAll = async () => {
+    if (!weights) { toast.error('Save grade weights first'); return; }
+    setRecalculating(true);
+    await recalculateAllWithWeights(createClient(), offeringId, weights);
+    toast.success('Final grades recalculated for all students');
+    await load();
+    setRecalculating(false);
+  };
 
   // ── Class averages ────────────────────────────────────────────────────────
   const classAvg: Record<string, number | null> = {};
@@ -303,6 +340,86 @@ export default function InstructorGradebookPage() {
           )}
         </div>
       )}
+
+      {/* ── Grade Weights Panel ── */}
+      <div className="bg-white border border-gray-200 rounded-xl no-print">
+        <button
+          type="button"
+          onClick={() => setWeightsOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 rounded-xl"
+        >
+          <div className="flex items-center gap-3">
+            <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
+            </svg>
+            <span className="font-semibold text-gray-800 text-sm">Grade Weights</span>
+            {weights ? (
+              <span className="text-xs text-gray-400">
+                Assessments {weights.assessments_weight}% · Assignments {weights.assignments_weight}% · Attendance {weights.attendance_weight}%
+              </span>
+            ) : (
+              <span className="text-xs text-amber-600">Not configured — using marks-based grading</span>
+            )}
+          </div>
+          <svg className={`w-4 h-4 text-gray-400 transition-transform ${weightsOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {weightsOpen && (
+          <div className="border-t border-gray-100 px-5 py-5">
+            <p className="text-xs text-gray-500 mb-4">
+              Set the percentage each category contributes to the final grade. The three values must total 100%.
+              Click <strong>Recalculate</strong> after saving to update all students' final grades.
+            </p>
+            <div className="flex flex-wrap items-end gap-4">
+              {([
+                { key: 'assessments_weight', label: 'Assessments %' },
+                { key: 'assignments_weight', label: 'Assignments %' },
+                { key: 'attendance_weight',  label: 'Attendance %'  },
+              ] as const).map(({ key, label }) => (
+                <div key={key}>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={weightForm[key]}
+                    onChange={e => setWeightForm(f => ({ ...f, [key]: Number(e.target.value) }))}
+                    className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              ))}
+              <div className="pb-0.5">
+                <p className={`text-xs font-semibold ${Math.abs(weightForm.assessments_weight + weightForm.assignments_weight + weightForm.attendance_weight - 100) < 0.01 ? 'text-green-600' : 'text-red-500'}`}>
+                  Sum: {(weightForm.assessments_weight + weightForm.assignments_weight + weightForm.attendance_weight).toFixed(0)}%
+                </p>
+              </div>
+              <div className="flex gap-2 pb-0.5">
+                <button
+                  type="button"
+                  onClick={handleSaveWeights}
+                  disabled={weightsSaving}
+                  className="px-4 py-2 bg-purple-700 text-white rounded-lg text-sm font-medium hover:bg-purple-800 disabled:opacity-50"
+                >
+                  {weightsSaving ? 'Saving…' : 'Save Weights'}
+                </button>
+                {weights && (
+                  <button
+                    type="button"
+                    onClick={handleRecalculateAll}
+                    disabled={recalculating || !students.length}
+                    className="px-4 py-2 border border-purple-300 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-50 disabled:opacity-50"
+                  >
+                    {recalculating ? 'Recalculating…' : 'Recalculate All Grades'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {columns.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
