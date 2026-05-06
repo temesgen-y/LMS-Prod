@@ -339,23 +339,43 @@ export default function StudentsPage() {
             </span>
             <div className="flex items-center gap-1">
               <button
+                onClick={() => setPage(1)}
+                disabled={page === 1}
+                className="px-2 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >«</button>
+              <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="p-1.5 rounded border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
+                className="px-3 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >‹ Prev</button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(n => n === 1 || n === totalPages || Math.abs(n - page) <= 2)
+                .reduce<(number | '...')[]>((acc, n, i, arr) => {
+                  if (i > 0 && n - (arr[i - 1] as number) > 1) acc.push('...');
+                  acc.push(n);
+                  return acc;
+                }, [])
+                .map((n, i) =>
+                  n === '...' ? (
+                    <span key={`e-${i}`} className="px-2 py-1.5 text-sm text-gray-400">…</span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n as number)}
+                      className={`px-3 py-1.5 rounded text-sm font-medium ${page === n ? 'bg-purple-700 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >{n}</button>
+                  )
+                )}
               <button
                 onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="p-1.5 rounded border border-gray-200 text-gray-400 hover:text-gray-700 hover:border-gray-300 disabled:opacity-30 disabled:cursor-not-allowed transition"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
+                className="px-3 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >Next ›</button>
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page === totalPages}
+                className="px-2 py-1.5 rounded text-sm text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              >»</button>
             </div>
           </div>
         )}
