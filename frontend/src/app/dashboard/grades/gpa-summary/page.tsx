@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
@@ -69,33 +69,7 @@ export default function GpaSummaryPage() {
         if (prog) setProgram({ name: (prog as any).name ?? '—', totalRequired: (prog as any).total_credits ?? 120 });
       }
 
-      // First try semester_gpa table (computed by backend)
-      const { data: storedGpa } = await supabase
-        .from('semester_gpa')
-        .select('*, academic_terms!term_id(term_name, year_start)')
-        .eq('student_id', uid)
-        .order('calculated_at', { ascending: true });
-
-      if (storedGpa && storedGpa.length > 0) {
-        setTerms((storedGpa as any[]).map(r => ({
-          termId:     r.term_id,
-          termName:   r.academic_terms?.term_name ?? '—',
-          termYear:   r.academic_terms?.year_start ?? 0,
-          semCredits: r.total_credit_hours,
-          semQPs:     r.total_quality_points,
-          semGpa:     r.semester_gpa,
-          cumCredits: r.cumulative_credit_hours,
-          cumQPs:     r.cumulative_quality_points,
-          cumGpa:     r.cumulative_gpa,
-          taken:      r.courses_taken,
-          passed:     r.courses_passed,
-          failed:     r.courses_failed,
-        })));
-        setLoading(false);
-        return;
-      }
-
-      // Fallback: compute from enrollments
+      // Always compute live from enrollments so GPA is never stale
       const { data: enrollments } = await supabase
         .from('enrollments')
         .select('id, status, final_grade, course_offerings(courses(id, credit_hours), academic_terms(id, term_name, year_start))')
