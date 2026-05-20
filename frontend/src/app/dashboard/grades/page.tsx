@@ -208,7 +208,7 @@ export default function GradesPage() {
             <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
               <p className="text-xs font-semibold text-gray-600 mb-2">GPA Scale (4.0)</p>
               <div className="flex flex-wrap gap-2">
-                {[['A','4.0'],['A-','3.7'],['B+','3.3'],['B','3.0'],['B-','2.7'],['C+','2.3'],['C','2.0'],['D','1.0'],['F','0.0']].map(([g, pts]) => (
+                {[['A','4.00'],['A-','3.75'],['B+','3.50'],['B','3.00'],['B-','2.75'],['C+','2.50'],['C','2.00'],['C-','1.75'],['D','1.00'],['F','0.00']].map(([g, pts]) => (
                   <span key={g} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${getGradeColor(g)}`}>
                     {g} = {pts}
                   </span>
