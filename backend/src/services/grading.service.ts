@@ -1,15 +1,17 @@
 import { supabaseAdmin } from '../lib/supabase';
 import { createError } from '../middleware/errorHandler';
 
+// Ethiopian university grade scale (matches grade_scale seed)
 const getLetterGrade = (scorePct: number): string => {
-  if (scorePct >= 93) return 'A';
-  if (scorePct >= 90) return 'A-';
-  if (scorePct >= 87) return 'B+';
-  if (scorePct >= 83) return 'B';
-  if (scorePct >= 80) return 'B-';
-  if (scorePct >= 77) return 'C+';
-  if (scorePct >= 73) return 'C';
-  if (scorePct >= 60) return 'D';
+  if (scorePct >= 90) return 'A';
+  if (scorePct >= 85) return 'A-';
+  if (scorePct >= 80) return 'B+';
+  if (scorePct >= 75) return 'B';
+  if (scorePct >= 70) return 'B-';
+  if (scorePct >= 65) return 'C+';
+  if (scorePct >= 60) return 'C';
+  if (scorePct >= 55) return 'C-';
+  if (scorePct >= 45) return 'D';
   return 'F';
 };
 

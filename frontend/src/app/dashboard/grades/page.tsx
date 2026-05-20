@@ -121,9 +121,16 @@ export default function GradesPage() {
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-4xl mx-auto px-6 py-8">
         {/* Header */}
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-2xl" aria-hidden>📊</span>
-          <h1 className="text-2xl font-bold text-gray-900">My Grades</h1>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gray-900">My Grades</h1>
+          </div>
+          <Link
+            href="/dashboard/grades/gpa-summary"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-[#4c1d95] text-white text-sm font-medium rounded-lg hover:bg-[#5b21b6]"
+          >
+            GPA Summary →
+          </Link>
         </div>
         <p className="text-sm text-gray-500 mb-6">Course-level grade summary across all enrolled courses</p>
 

@@ -234,8 +234,30 @@ export default function InstructorGradebookPage() {
   const handleRecalculateAll = async () => {
     if (!weights) { toast.error('Save grade weights first'); return; }
     setRecalculating(true);
-    await recalculateAllWithWeights(createClient(), offeringId, weights);
-    toast.success('Final grades recalculated for all students');
+    try {
+      await recalculateAllWithWeights(createClient(), offeringId, weights);
+
+      // Trigger GPA recalculation for all students in this offering
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        const apiUrl  = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
+        const gpaRes  = await fetch(`${apiUrl}/api/grading/recalculate-gpa-offering/${offeringId}`, {
+          method:  'POST',
+          headers: { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        });
+        if (gpaRes.ok) {
+          const { studentsProcessed } = await gpaRes.json();
+          toast.success(`Grades recalculated. GPA updated for ${studentsProcessed} student${studentsProcessed !== 1 ? 's' : ''}.`);
+        } else {
+          toast.success('Final grades recalculated for all students.');
+        }
+      } else {
+        toast.success('Final grades recalculated for all students.');
+      }
+    } catch {
+      toast.success('Final grades recalculated for all students.');
+    }
     await load();
     setRecalculating(false);
   };

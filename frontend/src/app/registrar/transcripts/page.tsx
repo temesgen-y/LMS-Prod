@@ -90,6 +90,27 @@ export default function RegistrarTranscriptsPage() {
   const [studentInfo, setStudentInfo] = useState<StudentInfo | null>(null);
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [transcriptError, setTranscriptError] = useState('');
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const downloadOfficialPdf = async () => {
+    if (!selectedStudent) return;
+    setPdfLoading(true);
+    try {
+      const res = await fetch(`/api/transcript/${selectedStudent.id}`);
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `official-transcript-${studentInfo?.studentNo ?? selectedStudent.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert(e.message ?? 'PDF generation failed');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   // Load all students on mount
   useEffect(() => {
@@ -232,11 +253,20 @@ export default function RegistrarTranscriptsPage() {
             </button>
             <button
               type="button"
+              onClick={downloadOfficialPdf}
+              disabled={pdfLoading}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#4c1d95] text-white text-sm font-medium hover:bg-[#5b21b6] disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+              {pdfLoading ? 'Generating…' : 'Official PDF'}
+            </button>
+            <button
+              type="button"
               onClick={() => window.print()}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-              Print PDF
+              Print
             </button>
           </div>
         )}

@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 import Link from 'next/link';
 
-type Tab = 'degree_audit' | 'advising_notes' | 'appointments' | 'holds';
+type Tab = 'degree_audit' | 'gpa_transcript' | 'advising_notes' | 'appointments' | 'holds';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -74,6 +74,10 @@ export default function StudentDetailPage() {
   const [requirements, setRequirements] = useState<DegreeRequirement[]>([]);
   const [auditLoading, setAuditLoading] = useState(false);
 
+  // GPA data
+  const [gpaTerms, setGpaTerms]   = useState<any[]>([]);
+  const [gpaLoading, setGpaLoading] = useState(false);
+
   // Advising notes
   const [notes, setNotes] = useState<AdvisingNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
@@ -128,6 +132,86 @@ export default function StudentDetailPage() {
       });
     };
     init();
+  }, [studentId]);
+
+  // ── GPA / Transcript ──────────────────────────────────────────────────────
+
+  const loadGpa = useCallback(async () => {
+    setGpaLoading(true);
+    const SCALE: Record<string, { gradePoint: number; countsInGpa: boolean; isPassing: boolean }> = {
+      'A':  { gradePoint: 4.00, countsInGpa: true,  isPassing: true  },
+      'A-': { gradePoint: 3.75, countsInGpa: true,  isPassing: true  },
+      'B+': { gradePoint: 3.50, countsInGpa: true,  isPassing: true  },
+      'B':  { gradePoint: 3.00, countsInGpa: true,  isPassing: true  },
+      'B-': { gradePoint: 2.75, countsInGpa: true,  isPassing: true  },
+      'C+': { gradePoint: 2.50, countsInGpa: true,  isPassing: true  },
+      'C':  { gradePoint: 2.00, countsInGpa: true,  isPassing: true  },
+      'C-': { gradePoint: 1.75, countsInGpa: true,  isPassing: true  },
+      'D':  { gradePoint: 1.00, countsInGpa: true,  isPassing: true  },
+      'F':  { gradePoint: 0.00, countsInGpa: true,  isPassing: false },
+      'I':  { gradePoint: 0.00, countsInGpa: false, isPassing: false },
+      'W':  { gradePoint: 0.00, countsInGpa: false, isPassing: false },
+      'NG': { gradePoint: 0.00, countsInGpa: false, isPassing: false },
+    };
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    // Try stored semester_gpa first
+    const { data: stored } = await supabase
+      .from('semester_gpa')
+      .select('*, academic_terms!term_id(term_name, year_start)')
+      .eq('student_id', studentId)
+      .order('calculated_at', { ascending: true });
+
+    if (stored && stored.length > 0) {
+      setGpaTerms((stored as any[]).map(r => ({
+        termName:   r.academic_terms?.term_name ?? '—',
+        termYear:   r.academic_terms?.year_start ?? 0,
+        semCredits: r.total_credit_hours,
+        semGpa:     r.semester_gpa,
+        cumGpa:     r.cumulative_gpa,
+        standing:   r.academic_standing,
+      })));
+      setGpaLoading(false);
+      return;
+    }
+
+    // Fallback: compute from enrollments
+    const { data: enrollments } = await supabase
+      .from('enrollments')
+      .select('id, status, final_grade, course_offerings(courses(id, credit_hours), academic_terms(id, term_name, year_start))')
+      .eq('student_id', studentId)
+      .order('enrolled_at', { ascending: true });
+
+    const termMap = new Map<string, any>();
+    ((enrollments ?? []) as any[]).forEach(e => {
+      const co     = e.course_offerings;
+      const course = Array.isArray(co?.courses) ? co.courses[0] : co?.courses;
+      const term   = Array.isArray(co?.academic_terms) ? co.academic_terms[0] : co?.academic_terms;
+      if (!term || !course) return;
+      if (!termMap.has(term.id)) termMap.set(term.id, { termName: term.term_name, termYear: term.year_start ?? 0, items: [] });
+      termMap.get(term.id)!.items.push({ courseId: course.id, credits: course.credit_hours ?? 3, grade: e.final_grade, status: e.status });
+    });
+
+    const sorted = [...termMap.values()].sort((a: any, b: any) => a.termYear - b.termYear);
+    const latestByCourse = new Map<string, string>();
+    sorted.forEach((t: any, ti: number) => t.items.forEach((c: any) => { if (c.status !== 'withdrawn') latestByCourse.set(c.courseId, String(ti)); }));
+
+    let cumCr = 0, cumQP = 0;
+    const computed = sorted.map((t: any, ti: number) => {
+      let semCr = 0, semQP = 0;
+      t.items.forEach((c: any) => {
+        const isLatest = latestByCourse.get(c.courseId) === String(ti);
+        const entry = SCALE[c.grade ?? ''];
+        if (isLatest && entry?.countsInGpa && c.status !== 'withdrawn' && c.grade) { semCr += c.credits; semQP += entry.gradePoint * c.credits; }
+      });
+      const semGpa = semCr > 0 ? r2(semQP / semCr) : 0;
+      cumCr += semCr; cumQP += semQP;
+      const cumGpa = cumCr > 0 ? r2(cumQP / cumCr) : 0;
+      const standLabel = semGpa >= 3.50 ? "Dean's List" : semGpa >= 2.00 ? 'Good Standing' : semGpa >= 1.50 ? 'Academic Probation' : 'Dismissal Warning';
+      return { termName: t.termName, termYear: t.termYear, semCredits: semCr, semGpa, cumGpa, standing: semCr > 0 ? standLabel : '—' };
+    });
+    setGpaTerms(computed);
+    setGpaLoading(false);
   }, [studentId]);
 
   // ── Degree Audit ──────────────────────────────────────────────────────────
@@ -299,10 +383,11 @@ export default function StudentDetailPage() {
 
   useEffect(() => {
     if (!advisorId || !student) return;
-    if (activeTab === 'degree_audit') loadAudit(student.programId);
-    if (activeTab === 'advising_notes') loadNotes();
-    if (activeTab === 'appointments') loadAppointments();
-    if (activeTab === 'holds') loadHolds();
+    if (activeTab === 'degree_audit')    loadAudit(student.programId);
+    if (activeTab === 'gpa_transcript')  loadGpa();
+    if (activeTab === 'advising_notes')  loadNotes();
+    if (activeTab === 'appointments')    loadAppointments();
+    if (activeTab === 'holds')           loadHolds();
   }, [activeTab, advisorId, student]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -322,10 +407,11 @@ export default function StudentDetailPage() {
   const progressPct = requirements.length > 0 ? Math.round((completedCount / requirements.length) * 100) : 0;
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: 'degree_audit', label: 'Degree Audit' },
-    { key: 'advising_notes', label: 'Advising Notes' },
-    { key: 'appointments', label: 'Appointments' },
-    { key: 'holds', label: 'Holds' },
+    { key: 'degree_audit',   label: 'Degree Audit'    },
+    { key: 'gpa_transcript', label: 'GPA / Transcript'},
+    { key: 'advising_notes', label: 'Advising Notes'  },
+    { key: 'appointments',   label: 'Appointments'    },
+    { key: 'holds',          label: 'Holds'           },
   ];
 
   if (!student) return <div className="p-8 text-center text-gray-500">Loading…</div>;
@@ -431,6 +517,87 @@ export default function StudentDetailPage() {
                         </td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── GPA / TRANSCRIPT ──────────────────────────────────────────────── */}
+      {activeTab === 'gpa_transcript' && (
+        <div>
+          {gpaLoading ? (
+            <div className="text-center py-12 text-gray-500">Loading GPA data…</div>
+          ) : gpaTerms.length === 0 ? (
+            <div className="text-center py-12 text-gray-400 bg-white rounded-xl border border-gray-200">
+              <p className="font-medium">No graded courses found</p>
+              <p className="text-sm mt-1">GPA will appear once final grades are recorded.</p>
+            </div>
+          ) : (
+            <>
+              {/* Summary cards */}
+              {(() => {
+                const last = gpaTerms[gpaTerms.length - 1];
+                const cgpa = last?.cumGpa ?? 0;
+                const isAtRisk = cgpa < 2.00 && cgpa > 0;
+                const standColor = cgpa >= 3.50 ? 'text-green-700' : cgpa >= 2.00 ? 'text-blue-700' : cgpa >= 1.50 ? 'text-orange-700' : 'text-red-700';
+                const standLabel = cgpa >= 3.50 ? "Dean's List" : cgpa >= 2.00 ? 'Good Standing' : cgpa >= 1.50 ? 'Academic Probation' : 'Dismissal Warning';
+                return (
+                  <>
+                    {isAtRisk && (
+                      <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+                        <strong>At-Risk Student:</strong> CGPA {cgpa.toFixed(2)} is below the 2.00 minimum requirement. Immediate advising recommended.
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-4 mb-6">
+                      {[
+                        { label: 'Cumulative GPA', value: `${cgpa.toFixed(2)} / 4.00`, color: standColor },
+                        { label: 'Academic Standing', value: standLabel, color: standColor },
+                        { label: 'Semesters', value: String(gpaTerms.length), color: 'text-gray-700' },
+                      ].map(c => (
+                        <div key={c.label} className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+                          <div className={`text-xl font-bold ${c.color}`}>{c.value}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
+
+              {/* Semester-by-semester table */}
+              <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      {['Semester', 'Credits', 'Sem. GPA', 'Cum. GPA', 'Standing'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {gpaTerms.map((t: any, i: number) => {
+                      const isProb = t.semGpa > 0 && t.semGpa < 2.00;
+                      return (
+                        <tr key={i} className={isProb ? 'bg-red-50/50' : i % 2 === 0 ? '' : 'bg-gray-50/50'}>
+                          <td className="px-4 py-3 font-medium text-gray-900">{t.termName} <span className="text-gray-400 text-xs">{t.termYear}</span></td>
+                          <td className="px-4 py-3 text-gray-600">{t.semCredits}</td>
+                          <td className="px-4 py-3 font-bold text-gray-900">{t.semCredits > 0 ? t.semGpa.toFixed(2) : '—'}</td>
+                          <td className="px-4 py-3 font-bold text-teal-700">{t.cumGpa.toFixed(2)}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              t.standing === "Dean's List"       ? 'bg-green-100 text-green-700'  :
+                              t.standing === 'Good Standing'     ? 'bg-blue-100 text-blue-700'    :
+                              t.standing === 'Academic Probation'? 'bg-orange-100 text-orange-700':
+                              t.standing === 'Dismissal Warning' ? 'bg-red-100 text-red-700'      :
+                              'bg-gray-100 text-gray-500'
+                            }`}>{t.standing}</span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
