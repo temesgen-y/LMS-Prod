@@ -16,6 +16,7 @@ type QuestionOption = {
   body: string;
   is_correct: boolean;
   sort_order: number;
+  match_target: string | null;
 };
 
 type QuestionRow = {
@@ -227,12 +228,12 @@ export default function AssessmentSubmissionsPage() {
       if (qIds.length > 0) {
         const { data: optsData } = await supabase
           .from('question_options')
-          .select('id, question_id, body, is_correct, sort_order')
+          .select('id, question_id, body, is_correct, sort_order, match_target')
           .in('question_id', qIds)
           .order('sort_order');
         ((optsData ?? []) as any[]).forEach((o: any) => {
           if (!optsByQuestion[o.question_id]) optsByQuestion[o.question_id] = [];
-          optsByQuestion[o.question_id].push({ id: o.id, body: o.body, is_correct: o.is_correct, sort_order: o.sort_order });
+          optsByQuestion[o.question_id].push({ id: o.id, body: o.body, is_correct: o.is_correct, sort_order: o.sort_order, match_target: o.match_target ?? null });
         });
       }
 
@@ -519,7 +520,7 @@ function calcAutoScore(
   return answers.reduce((sum, a) => {
     const q = questions.find(q => q.id === a.questionId);
     if (!q) return sum;
-    if (q.type === 'mcq' || q.type === 'true_false') {
+    if (q.type === 'mcq' || q.type === 'true_false' || q.type === 'multiple_select' || q.type === 'matching') {
       return sum + (a.marksAwarded ?? 0);
     }
     if (q.type === 'essay' || q.type === 'short_answer' || q.type === 'fill_blank') {
@@ -651,8 +652,10 @@ function AttemptCard({
         <div className="divide-y divide-gray-100">
           {questions.map((q, qi) => {
             const answer = att.answers.find(a => a.questionId === q.id);
-            const isMCQ       = q.type === 'mcq' || q.type === 'true_false';
-            const isOpenEnded = q.type === 'essay' || q.type === 'short_answer' || q.type === 'fill_blank';
+            const isMCQ         = q.type === 'mcq' || q.type === 'true_false';
+            const isMultiSelect = q.type === 'multiple_select';
+            const isMatching    = q.type === 'matching';
+            const isOpenEnded   = q.type === 'essay' || q.type === 'short_answer' || q.type === 'fill_blank';
 
             return (
               <div key={q.id} className="px-5 py-4 bg-white">
@@ -717,6 +720,102 @@ function AttemptCard({
                   </div>
                 )}
 
+                {/* Multiple Select options */}
+                {isMultiSelect && (
+                  <div className="ml-8 space-y-2">
+                    {q.options.length === 0 && (
+                      <p className="text-xs text-gray-400 italic">No options recorded.</p>
+                    )}
+                    {q.options.map(opt => {
+                      const isSelected = answer?.selectedOptions?.includes(opt.id) ?? false;
+                      const isCorrect  = opt.is_correct;
+
+                      let optStyle = 'bg-white border-gray-200 text-gray-700';
+                      if (isSelected && isCorrect)        optStyle = 'bg-green-50 border-green-400 text-green-800';
+                      else if (isSelected && !isCorrect)  optStyle = 'bg-red-50 border-red-400 text-red-800';
+                      else if (!isSelected && isCorrect)  optStyle = 'bg-green-50/60 border-green-200 text-green-700';
+
+                      return (
+                        <div key={opt.id} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border text-sm ${optStyle}`}>
+                          <div className={`w-4 h-4 rounded-md border-2 flex items-center justify-center flex-shrink-0 ${
+                            isSelected
+                              ? (isCorrect ? 'border-green-500 bg-green-500' : 'border-red-500 bg-red-500')
+                              : 'border-gray-300 bg-white'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          <span className="flex-1" dangerouslySetInnerHTML={{ __html: opt.body }} />
+                          {isSelected && (
+                            <span className={`text-[11px] font-semibold flex-shrink-0 ${isCorrect ? 'text-green-700' : 'text-red-600'}`}>
+                              {isCorrect ? '✓ Correct' : '✗ Wrong'}
+                            </span>
+                          )}
+                          {!isSelected && isCorrect && (
+                            <span className="text-[11px] font-semibold text-green-600 flex-shrink-0">Should select</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <p className="text-xs text-gray-400 mt-1">
+                      Auto-graded: <span className="font-semibold">{answer?.marksAwarded ?? 0}/{q.marks}</span>
+                    </p>
+                  </div>
+                )}
+
+                {/* Matching pairs */}
+                {isMatching && (() => {
+                  let matchAnswers: Record<string, string> = {};
+                  try {
+                    if (answer?.textAnswer) matchAnswers = JSON.parse(answer.textAnswer);
+                  } catch { /* ignore parse errors */ }
+                  return (
+                    <div className="ml-8 space-y-2">
+                      {q.options.length === 0 && (
+                        <p className="text-xs text-gray-400 italic">No matching pairs recorded.</p>
+                      )}
+                      <div className="grid grid-cols-3 gap-x-2 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                        <span>Left (Prompt)</span>
+                        <span>Student Answer</span>
+                        <span>Correct Answer</span>
+                      </div>
+                      {q.options.map(opt => {
+                        const studentChoice = matchAnswers[opt.id] ?? null;
+                        const correctChoice = opt.match_target ?? '—';
+                        const isRight = studentChoice !== null && studentChoice === correctChoice;
+                        return (
+                          <div key={opt.id} className={`grid grid-cols-3 gap-x-2 px-3 py-2 rounded-lg border text-sm ${
+                            studentChoice === null
+                              ? 'bg-white border-gray-200 text-gray-500'
+                              : isRight
+                                ? 'bg-green-50 border-green-300 text-green-800'
+                                : 'bg-red-50 border-red-300 text-red-800'
+                          }`}>
+                            <span className="font-medium" dangerouslySetInnerHTML={{ __html: opt.body }} />
+                            <span className={!studentChoice ? 'italic text-gray-400' : ''}>
+                              {studentChoice ?? 'No answer'}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              {correctChoice}
+                              {studentChoice !== null && (
+                                <span className={`text-[11px] font-bold ml-1 ${isRight ? 'text-green-700' : 'text-red-600'}`}>
+                                  {isRight ? '✓' : '✗'}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      <p className="text-xs text-gray-400 mt-1">
+                        Auto-graded: <span className="font-semibold">{answer?.marksAwarded ?? 0}/{q.marks}</span>
+                      </p>
+                    </div>
+                  );
+                })()}
+
                 {/* Open-ended */}
                 {isOpenEnded && (
                   <div className="ml-8 space-y-2">
@@ -768,7 +867,7 @@ function AttemptCard({
         <div className="text-sm text-gray-600">
           <span className="font-medium">Total score to award:</span>
           <span className="ml-2 text-gray-400 text-xs">
-            (MCQ auto-graded · Enter marks for open-ended questions above)
+            (MCQ, Multiple Select &amp; Matching auto-graded · Enter marks for open-ended questions above)
           </span>
         </div>
         <div className="flex items-center gap-2">

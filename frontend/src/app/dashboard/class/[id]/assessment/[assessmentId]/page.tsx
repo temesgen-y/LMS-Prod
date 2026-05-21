@@ -32,18 +32,18 @@ type AttachmentRef = {
   sizeKb: number;
 };
 
-type Option = { id: string; body: string; is_correct: boolean; sort_order: number };
+type Option = { id: string; body: string; is_correct: boolean; sort_order: number; match_target: string | null };
 
 type Question = {
   id: string;
-  type: 'mcq' | 'true_false' | 'short_answer' | 'fill_blank' | 'essay' | 'matching';
+  type: 'mcq' | 'true_false' | 'short_answer' | 'fill_blank' | 'essay' | 'matching' | 'multiple_select';
   body: string;
   marks: number;
   sort_order: number;
   options: Option[];
 };
 
-type Answer = { selectedOptions: string[]; textAnswer: string };
+type Answer = { selectedOptions: string[]; textAnswer: string; matchAnswers: Record<string, string> };
 
 type ResultAnswer = {
   questionId: string;
@@ -118,6 +118,9 @@ export default function AssessmentTakingPage() {
   const [userId, setUserId]         = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg]     = useState<string | null>(null);
+  const [timeExpired, setTimeExpired] = useState(false);
+  // key = questionId, value = pool answer currently "selected" by the student before assigning
+  const [matchingSelected, setMatchingSelected] = useState<Record<string, string | null>>({});
 
   // open-ended (assessment with no structured questions)
   const [openResponse, setOpenResponse] = useState('');
@@ -236,6 +239,7 @@ export default function AssessmentTakingPage() {
       setTimeLeft(prev => {
         if (prev === null || prev <= 1) {
           clearInterval(interval);
+          setTimeExpired(true);
           submitRef.current?.(true);
           return 0;
         }
@@ -253,18 +257,20 @@ export default function AssessmentTakingPage() {
   async function fetchQuestions(supabase: any, aId: string): Promise<Question[]> {
     const { data: qs } = await supabase
       .from('questions')
-      .select('id, type, body, marks, sort_order, question_options(id, body, is_correct, sort_order)')
+      .select('id, type, body, marks, sort_order, question_options(id, body, is_correct, sort_order, match_target)')
       .eq('assessment_id', aId)
       .order('sort_order', { ascending: true });
     return ((qs ?? []) as any[]).map((q: any) => ({
       ...q,
-      options: ((q.question_options ?? []) as any[]).sort((a: any, b: any) => a.sort_order - b.sort_order),
+      options: ((q.question_options ?? []) as any[])
+        .sort((a: any, b: any) => a.sort_order - b.sort_order)
+        .map((o: any) => ({ ...o, match_target: o.match_target ?? null })),
     }));
   }
 
   function initAnswers(qs: Question[]) {
     const m = new Map<string, Answer>();
-    qs.forEach(q => m.set(q.id, { selectedOptions: [], textAnswer: '' }));
+    qs.forEach(q => m.set(q.id, { selectedOptions: [], textAnswer: '', matchAnswers: {} }));
     setAnswers(m);
   }
 
@@ -309,7 +315,8 @@ export default function AssessmentTakingPage() {
   function setAnswer(qId: string, patch: Partial<Answer>) {
     setAnswers(prev => {
       const next = new Map(prev);
-      next.set(qId, { ...(prev.get(qId) ?? { selectedOptions: [], textAnswer: '' }), ...patch });
+      const base: Answer = prev.get(qId) ?? { selectedOptions: [], textAnswer: '', matchAnswers: {} };
+      next.set(qId, { ...base, ...patch });
       return next;
     });
   }
@@ -391,12 +398,12 @@ export default function AssessmentTakingPage() {
       }
     }
 
-    // ── Insert answers + auto-grade MCQ/true_false ─────────────────────────
+    // ── Insert answers + auto-grade objective questions ────────────────────
     const hasManual = questions.some(q => q.type === 'short_answer' || q.type === 'essay' || q.type === 'fill_blank');
     let autoScore = 0;
 
     for (const q of questions) {
-      const ans = answers.get(q.id) ?? { selectedOptions: [], textAnswer: '' };
+      const ans = answers.get(q.id) ?? { selectedOptions: [], textAnswer: '', matchAnswers: {} };
       let isCorrect: boolean | null = null;
       let marksAwarded = 0;
       let textAnswer = ans.textAnswer;
@@ -408,6 +415,28 @@ export default function AssessmentTakingPage() {
           ans.selectedOptions.every(id => correctIds.includes(id));
         marksAwarded = isCorrect ? q.marks : 0;
         autoScore += marksAwarded;
+      }
+
+      if (q.type === 'multiple_select') {
+        const correctIds = q.options.filter(o => o.is_correct).map(o => o.id);
+        isCorrect = correctIds.length > 0 &&
+          ans.selectedOptions.length === correctIds.length &&
+          ans.selectedOptions.every(id => correctIds.includes(id)) &&
+          correctIds.every(id => ans.selectedOptions.includes(id));
+        marksAwarded = isCorrect ? q.marks : 0;
+        autoScore += marksAwarded;
+      }
+
+      if (q.type === 'matching') {
+        const matchAnswers = ans.matchAnswers ?? {};
+        const allCorrect = q.options.length > 0 && q.options.every(opt =>
+          opt.match_target !== null && matchAnswers[opt.id] === opt.match_target
+        );
+        isCorrect = allCorrect;
+        marksAwarded = isCorrect ? q.marks : 0;
+        autoScore += marksAwarded;
+        // Persist matching answers as JSON in text_answer
+        textAnswer = Object.keys(matchAnswers).length > 0 ? JSON.stringify(matchAnswers) : '';
       }
 
       // Append uploaded file links to text_answer for display
@@ -458,6 +487,7 @@ export default function AssessmentTakingPage() {
     }
 
     // ── Determine final status ─────────────────────────────────────────────
+    // matching and multiple_select are auto-graded; only short_answer/fill_blank/essay need manual grading
     const newStatus = timedOut ? 'timed_out' : (hasManual ? 'submitted' : 'graded');
     const finalScore    = hasManual ? null : autoScore;
     const finalScorePct = (finalScore != null && assessment.total_marks > 0)
@@ -685,11 +715,31 @@ export default function AssessmentTakingPage() {
   if (pageState === 'taking' && assessment) {
     const answered = questions.filter(q => {
       const a = answers.get(q.id);
-      return (a?.selectedOptions.length ?? 0) > 0 || (a?.textAnswer ?? '').trim().length > 0;
+      const hasSelected = (a?.selectedOptions.length ?? 0) > 0;
+      const hasText     = (a?.textAnswer ?? '').trim().length > 0;
+      const hasMatch    = q.type === 'matching' && Object.keys(a?.matchAnswers ?? {}).length > 0;
+      return hasSelected || hasText || hasMatch;
     }).length;
 
     return (
       <div className="min-h-screen bg-gray-50">
+
+        {/* ── Time-expired overlay ─────────────────────────────────────── */}
+        {timeExpired && (
+          <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
+              <div className="text-5xl mb-4">⏰</div>
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Time&apos;s Up!</h2>
+              <p className="text-gray-500 text-sm mb-5">
+                Your answers are being submitted automatically. Please wait…
+              </p>
+              <div className="flex justify-center">
+                <div className="w-7 h-7 rounded-full border-[3px] border-[#4c1d95] border-t-transparent animate-spin" />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Sticky header */}
         <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
@@ -700,13 +750,21 @@ export default function AssessmentTakingPage() {
             <div className="flex items-center gap-3 flex-shrink-0">
               <span className="text-xs text-gray-500 hidden sm:block">{answered}/{questions.length} answered</span>
               {timeLeft !== null && (
-                <span className={`font-mono text-sm font-bold px-3 py-1.5 rounded-lg ${timeLeft < 300 ? 'bg-red-100 text-red-600 animate-pulse' : timeLeft < 600 ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-700'}`}>
-                  ⏱ {formatTime(timeLeft)}
+                <span className={`font-mono text-sm font-bold px-3 py-1.5 rounded-lg ${
+                  timeExpired || timeLeft === 0
+                    ? 'bg-red-600 text-white'
+                    : timeLeft < 300
+                    ? 'bg-red-100 text-red-600 animate-pulse'
+                    : timeLeft < 600
+                    ? 'bg-amber-100 text-amber-600'
+                    : 'bg-gray-100 text-gray-700'
+                }`}>
+                  {timeExpired ? '⏰ 00:00' : `⏱ ${formatTime(timeLeft)}`}
                 </span>
               )}
               <button
                 onClick={() => handleSubmit(false)}
-                disabled={submitting}
+                disabled={submitting || timeExpired}
                 className="px-5 py-2 rounded-lg bg-[#4c1d95] hover:bg-[#5b21b6] text-white text-sm font-semibold disabled:opacity-50 transition-colors"
               >
                 {submitting ? 'Submitting…' : 'Submit'}
@@ -739,7 +797,7 @@ export default function AssessmentTakingPage() {
 
           {/* Structured questions */}
           {questions.map((q, idx) => {
-            const ans = answers.get(q.id) ?? { selectedOptions: [], textAnswer: '' };
+            const ans = answers.get(q.id) ?? { selectedOptions: [] as string[], textAnswer: '', matchAnswers: {} as Record<string, string> };
             return (
               <div key={q.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 {/* Header */}
@@ -751,30 +809,194 @@ export default function AssessmentTakingPage() {
                     <div className="prose prose-sm max-w-none text-gray-900 font-medium"
                       dangerouslySetInnerHTML={{ __html: q.body }} />
                     <span className="text-xs text-gray-400 mt-1 block capitalize">
-                      {q.type.replace(/_/g, ' ')} · {q.marks} mark{q.marks !== 1 ? 's' : ''}
+                      {q.type === 'multiple_select' ? 'Multiple Select (choose all correct)' : q.type.replace(/_/g, ' ')} · {q.marks} mark{q.marks !== 1 ? 's' : ''}
                     </span>
                   </div>
                 </div>
 
                 {/* Answer area */}
                 <div className="px-6 py-4 space-y-3">
-                  {/* MCQ / True-False */}
+                  {/* MCQ / True-False — single-select radio */}
                   {(q.type === 'mcq' || q.type === 'true_false') && (
                     <div className="space-y-2">
-                      {q.options.map(opt => {
+                      {q.options.map((opt, optIdx) => {
                         const sel = ans.selectedOptions.includes(opt.id);
                         return (
                           <label key={opt.id}
-                            className={`flex items-center gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors ${sel ? 'border-[#4c1d95] bg-purple-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${timeExpired ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${sel ? 'border-[#4c1d95] bg-purple-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
                             <input type="radio" name={`q-${q.id}`} value={opt.id} checked={sel}
+                              disabled={timeExpired}
                               onChange={() => setAnswer(q.id, { selectedOptions: [opt.id] })}
                               className="accent-[#4c1d95]" />
+                            {q.type === 'mcq' && (
+                              <span className="w-5 h-5 rounded-full bg-gray-200 text-gray-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                                {String.fromCharCode(65 + optIdx)}
+                              </span>
+                            )}
                             <span className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: opt.body }} />
                           </label>
                         );
                       })}
                     </div>
                   )}
+
+                  {/* Multiple Select — checkbox, select ALL correct */}
+                  {q.type === 'multiple_select' && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-indigo-600 font-medium bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-lg">
+                        Select ALL correct answers — partial credit is not awarded.
+                      </p>
+                      {q.options.map((opt, optIdx) => {
+                        const sel = ans.selectedOptions.includes(opt.id);
+                        return (
+                          <label key={opt.id}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-colors ${timeExpired ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${sel ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}`}>
+                            <input type="checkbox" checked={sel}
+                              disabled={timeExpired}
+                              onChange={() => {
+                                const current = ans.selectedOptions;
+                                const next = sel
+                                  ? current.filter(id => id !== opt.id)
+                                  : [...current, opt.id];
+                                setAnswer(q.id, { selectedOptions: next });
+                              }}
+                              className="accent-indigo-600 w-4 h-4 flex-shrink-0" />
+                            <span className="w-5 h-5 rounded bg-gray-200 text-gray-600 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                              {String.fromCharCode(65 + optIdx)}
+                            </span>
+                            <span className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: opt.body }} />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Matching — click-to-assign pool */}
+                  {q.type === 'matching' && (() => {
+                    const pool = [...new Set(q.options.map(o => o.match_target).filter((v): v is string => v !== null && v !== undefined))];
+                    const currentAnswers = ans.matchAnswers ?? {};
+                    const usedAnswers    = new Set(Object.values(currentAnswers).filter(Boolean));
+                    const selectedAnswer = matchingSelected[q.id] ?? null;
+                    const answeredCount  = Object.values(currentAnswers).filter(Boolean).length;
+
+                    const assignAnswer = (optId: string, answer: string) => {
+                      if (timeExpired) return;
+                      // Allow reuse: same answer can match multiple items
+                      setAnswer(q.id, { matchAnswers: { ...currentAnswers, [optId]: answer } });
+                      setMatchingSelected(prev => ({ ...prev, [q.id]: null }));
+                    };
+
+                    const clearAnswer = (optId: string) => {
+                      if (timeExpired) return;
+                      const next = { ...currentAnswers };
+                      delete next[optId];
+                      setAnswer(q.id, { matchAnswers: next });
+                    };
+
+                    return (
+                      <div className="space-y-4">
+                        {/* Answer pool — all answers always visible */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-5 h-5 rounded-full bg-green-600 text-white text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">B</span>
+                            <span className="text-xs font-bold text-green-700">Answer Pool</span>
+                            <span className="text-xs text-gray-400">
+                              {selectedAnswer
+                                ? `— "${selectedAnswer}" selected · click an item below to assign`
+                                : '— click an answer to select it, then click an item to assign'}
+                            </span>
+                          </div>
+                          <div className={`flex flex-wrap gap-2 p-3 rounded-xl border-2 min-h-[52px] transition-colors ${
+                            selectedAnswer ? 'border-green-400 bg-green-50' : 'border-green-200 bg-green-50/40'
+                          }`}>
+                            {pool.map(answer => {
+                              const isUsed = usedAnswers.has(answer);
+                              const isSel  = selectedAnswer === answer;
+                              return (
+                                <button
+                                  key={answer}
+                                  type="button"
+                                  disabled={timeExpired}
+                                  onClick={() => setMatchingSelected(prev => ({ ...prev, [q.id]: isSel ? null : answer }))}
+                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border-2 transition-all disabled:cursor-not-allowed ${
+                                    isSel
+                                      ? 'bg-green-600 text-white border-green-600 shadow-md scale-105'
+                                      : isUsed
+                                      ? 'bg-green-100 text-green-700 border-green-300 hover:border-green-500'
+                                      : 'bg-white text-green-800 border-green-300 hover:border-green-500 hover:bg-green-100'
+                                  }`}
+                                >
+                                  {answer}{isUsed && !isSel && <span className="ml-1 text-[10px] opacity-70">✓</span>}
+                                </button>
+                              );
+                            })}
+                            {answeredCount === q.options.length && (
+                              <span className="text-xs text-green-600 font-medium italic self-center">All answers assigned ✓</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Items */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="w-5 h-5 rounded-full bg-pink-500 text-white text-[10px] font-extrabold flex items-center justify-center flex-shrink-0">A</span>
+                            <span className="text-xs font-bold text-pink-700">Items</span>
+                          </div>
+                          <div className="space-y-2">
+                            {q.options.map((opt, rowIdx) => {
+                              const assigned = currentAnswers[opt.id];
+                              const canAssign = !timeExpired && selectedAnswer !== null && !assigned;
+                              return (
+                                <div key={opt.id} className="flex items-center gap-3">
+                                  {/* Item */}
+                                  <div className="flex items-center gap-2 flex-1">
+                                    <span className="w-6 h-6 rounded-full bg-pink-100 text-pink-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                      {rowIdx + 1}
+                                    </span>
+                                    <div className="flex-1 px-3 py-2.5 bg-pink-50 border-2 border-pink-200 rounded-xl text-sm text-pink-900 font-medium min-h-[44px] flex items-center">
+                                      {opt.body}
+                                    </div>
+                                  </div>
+                                  <span className="text-gray-300 text-lg flex-shrink-0">→</span>
+                                  {/* Slot */}
+                                  {assigned ? (
+                                    <div className={`flex-1 flex items-center gap-2 px-3 py-2.5 bg-green-50 border-2 border-green-300 rounded-xl min-h-[44px] ${timeExpired ? 'opacity-75' : ''}`}>
+                                      <span className="flex-1 text-sm font-semibold text-green-800">{assigned}</span>
+                                      {!timeExpired && (
+                                        <button
+                                          type="button"
+                                          onClick={() => clearAnswer(opt.id)}
+                                          className="text-green-400 hover:text-red-500 flex-shrink-0 text-base leading-none"
+                                          title="Remove"
+                                        >✕</button>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      disabled={!canAssign}
+                                      onClick={() => { if (canAssign && selectedAnswer) assignAnswer(opt.id, selectedAnswer); }}
+                                      className={`flex-1 px-3 py-2.5 rounded-xl border-2 text-sm text-left min-h-[44px] transition-all ${
+                                        canAssign
+                                          ? 'border-green-400 bg-green-50 text-green-700 font-medium cursor-pointer hover:bg-green-100 animate-pulse'
+                                          : 'border-dashed border-gray-200 text-gray-400 cursor-default'
+                                      }`}
+                                    >
+                                      {canAssign ? `Tap to assign "${selectedAnswer}"` : 'Not assigned'}
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-gray-400 text-right">
+                          {answeredCount} of {q.options.length} matched
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   {/* Short answer / fill blank */}
                   {(q.type === 'short_answer' || q.type === 'fill_blank') && (
@@ -803,25 +1025,23 @@ export default function AssessmentTakingPage() {
                       />
                     </>
                   )}
-
-                  {q.type === 'matching' && (
-                    <p className="text-sm text-gray-400 italic">Matching questions — please answer in the text field below if applicable.</p>
-                  )}
                 </div>
               </div>
             );
           })}
 
           {/* Bottom submit */}
-          <div className="flex justify-center pt-4 pb-8">
-            <button
-              onClick={() => handleSubmit(false)}
-              disabled={submitting}
-              className="px-10 py-3 rounded-xl bg-[#4c1d95] hover:bg-[#5b21b6] text-white font-semibold text-sm uppercase tracking-wide disabled:opacity-50 transition-colors"
-            >
-              {submitting ? 'Submitting…' : 'Submit Assessment'}
-            </button>
-          </div>
+          {!timeExpired && (
+            <div className="flex justify-center pt-4 pb-8">
+              <button
+                onClick={() => handleSubmit(false)}
+                disabled={submitting}
+                className="px-10 py-3 rounded-xl bg-[#4c1d95] hover:bg-[#5b21b6] text-white font-semibold text-sm uppercase tracking-wide disabled:opacity-50 transition-colors"
+              >
+                {submitting ? 'Submitting…' : 'Submit Assessment'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -925,7 +1145,7 @@ export default function AssessmentTakingPage() {
               <div className="space-y-4">
                 {questions.map((q, idx) => {
                   const ra     = result.answers.find(a => a.questionId === q.id);
-                  const isAuto = q.type === 'mcq' || q.type === 'true_false';
+                  const isAuto = q.type === 'mcq' || q.type === 'true_false' || q.type === 'multiple_select' || q.type === 'matching';
                   const correct = ra?.isCorrect;
                   const borderColor = !isAuto ? 'border-gray-200' : correct ? 'border-green-300' : 'border-red-300';
                   const bgColor     = !isAuto ? 'bg-white' : correct ? 'bg-green-50' : 'bg-red-50';
@@ -947,26 +1167,24 @@ export default function AssessmentTakingPage() {
                         </div>
                       </div>
 
-                      {/* MCQ option review — always show student's selection; reveal correct answer only if show_answers=true */}
-                      {isAuto && q.options.length > 0 && (
+                      {/* MCQ / True-False option review */}
+                      {(q.type === 'mcq' || q.type === 'true_false') && q.options.length > 0 && (
                         <div className="px-5 pb-4 space-y-1.5">
-                          {q.options.map(opt => {
+                          {q.options.map((opt, optIdx) => {
                             const wasSel = (ra?.selectedOptions ?? []).includes(opt.id);
                             const isCorr = opt.is_correct;
                             const showCorrect = assessment.show_answers;
 
                             let cls = 'bg-white text-gray-600 border border-gray-100';
-                            if (showCorrect && isCorr)             cls = 'bg-green-100 text-green-800 border border-green-200';
-                            else if (showCorrect && wasSel)        cls = 'bg-red-100 text-red-700 border border-red-200';
-                            else if (!showCorrect && wasSel)       cls = 'bg-purple-50 text-purple-800 border border-[#4c1d95]/30';
+                            if (showCorrect && isCorr)      cls = 'bg-green-100 text-green-800 border border-green-200';
+                            else if (showCorrect && wasSel) cls = 'bg-red-100 text-red-700 border border-red-200';
+                            else if (!showCorrect && wasSel) cls = 'bg-purple-50 text-purple-800 border border-[#4c1d95]/30';
 
-                            const icon = showCorrect
-                              ? (isCorr ? '✓' : wasSel ? '✗' : '·')
-                              : (wasSel ? '●' : '○');
-
+                            const icon = showCorrect ? (isCorr ? '✓' : wasSel ? '✗' : '·') : (wasSel ? '●' : '○');
                             return (
                               <div key={opt.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${cls}`}>
                                 <span className="w-4 flex-shrink-0">{icon}</span>
+                                {q.type === 'mcq' && <span className="text-xs font-bold flex-shrink-0">{String.fromCharCode(65 + optIdx)}.</span>}
                                 <span dangerouslySetInnerHTML={{ __html: opt.body }} />
                                 {wasSel && !showCorrect && <span className="ml-auto text-xs text-[#4c1d95] font-medium flex-shrink-0">Your answer</span>}
                                 {wasSel && showCorrect && !isCorr && <span className="ml-auto text-xs text-red-500 flex-shrink-0">Your answer</span>}
@@ -975,6 +1193,75 @@ export default function AssessmentTakingPage() {
                               </div>
                             );
                           })}
+                        </div>
+                      )}
+
+                      {/* Multiple Select review */}
+                      {q.type === 'multiple_select' && q.options.length > 0 && (
+                        <div className="px-5 pb-4 space-y-1.5">
+                          <p className="text-xs text-indigo-600 mb-1">Select ALL correct answers:</p>
+                          {q.options.map((opt, optIdx) => {
+                            const wasSel = (ra?.selectedOptions ?? []).includes(opt.id);
+                            const isCorr = opt.is_correct;
+                            const showCorrect = assessment.show_answers;
+
+                            let cls = 'bg-white text-gray-600 border border-gray-100';
+                            if (showCorrect && isCorr)       cls = 'bg-indigo-50 text-indigo-800 border border-indigo-200';
+                            else if (showCorrect && wasSel)  cls = 'bg-red-100 text-red-700 border border-red-200';
+                            else if (!showCorrect && wasSel) cls = 'bg-indigo-50 text-indigo-800 border border-indigo-200';
+
+                            const icon = showCorrect ? (isCorr ? '☑' : wasSel ? '☒' : '☐') : (wasSel ? '☑' : '☐');
+                            return (
+                              <div key={opt.id} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm ${cls}`}>
+                                <span className="w-4 flex-shrink-0 text-base">{icon}</span>
+                                <span className="text-xs font-bold flex-shrink-0">{String.fromCharCode(65 + optIdx)}.</span>
+                                <span dangerouslySetInnerHTML={{ __html: opt.body }} />
+                                {wasSel && !showCorrect && <span className="ml-auto text-xs text-indigo-600 font-medium flex-shrink-0">Selected</span>}
+                                {wasSel && showCorrect && !isCorr && <span className="ml-auto text-xs text-red-500 flex-shrink-0">Wrong ✗</span>}
+                                {wasSel && showCorrect && isCorr  && <span className="ml-auto text-xs text-green-600 flex-shrink-0">Correct ✓</span>}
+                                {!wasSel && showCorrect && isCorr  && <span className="ml-auto text-xs text-indigo-600 flex-shrink-0">Should have selected</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Matching review */}
+                      {q.type === 'matching' && q.options.length > 0 && (
+                        <div className="px-5 pb-4 space-y-2">
+                          {(() => {
+                            let studentAnswers: Record<string, string> = {};
+                            try { if (ra?.textAnswer) studentAnswers = JSON.parse(ra.textAnswer); } catch {}
+                            return q.options.map(opt => {
+                              const studentChoice = studentAnswers[opt.id] ?? '';
+                              const isCorrect     = studentChoice === opt.match_target;
+                              const showCorrect   = assessment.show_answers;
+                              return (
+                                <div key={opt.id} className="flex items-center gap-2 text-sm">
+                                  <div className="flex-1 px-3 py-2 bg-pink-50 border border-pink-200 rounded-xl text-pink-800 text-xs font-medium">
+                                    {opt.body}
+                                  </div>
+                                  <span className="text-gray-400 flex-shrink-0">→</span>
+                                  <div className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium border ${
+                                    !studentChoice
+                                      ? 'bg-gray-50 border-gray-200 text-gray-400 italic'
+                                      : isCorrect
+                                      ? 'bg-green-50 border-green-300 text-green-800'
+                                      : 'bg-red-50 border-red-300 text-red-700'
+                                  }`}>
+                                    {studentChoice || '(not answered)'}
+                                    {studentChoice && isCorrect && <span className="ml-1">✓</span>}
+                                    {studentChoice && !isCorrect && <span className="ml-1">✗</span>}
+                                  </div>
+                                  {showCorrect && !isCorrect && opt.match_target && (
+                                    <div className="flex-1 px-3 py-2 bg-green-50 border border-green-200 rounded-xl text-green-800 text-xs font-medium">
+                                      ✓ {opt.match_target}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            });
+                          })()}
                         </div>
                       )}
 

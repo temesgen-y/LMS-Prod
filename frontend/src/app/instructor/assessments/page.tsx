@@ -1,12 +1,10 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import RichTextEditor from '@/components/shared/RichTextEditor';
-
-type PendingFile = { file: File; name: string; sizeKb: number };
 
 type SubRow = {
   studentId:   string;
@@ -24,7 +22,6 @@ type Assessment = {
   pendingCount: number; gradedCount: number;
 };
 type OfferingOption = { id: string; label: string };
-type MarksItem      = { title: string; marks: number };
 
 const TYPES       = ['quiz', 'midterm', 'final_exam', 'practice'];
 const TYPE_LABELS : Record<string, string> = { quiz: 'Quiz', midterm: 'Midterm', final_exam: 'Final Exam', practice: 'Practice' };
@@ -47,6 +44,7 @@ async function notifyEnrolledStudents(supabase: any, offeringId: string, type: s
 }
 
 export default function InstructorAssessmentsPage() {
+  const router = useRouter();
   const [assessments, setAssessments]   = useState<Assessment[]>([]);
   const [offerings, setOfferings]       = useState<OfferingOption[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -60,9 +58,6 @@ export default function InstructorAssessmentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteId, setDeleteId]         = useState<string | null>(null);
   const [isDeleting, setIsDeleting]     = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
-  const [uploadingFiles, setUploadingFiles] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Inline submissions panel state ──────────────────────────────────────
   const [expandedId, setExpandedId]     = useState<string | null>(null);
@@ -124,10 +119,8 @@ export default function InstructorAssessmentsPage() {
     });
   }, [subData, fetchSubmissions]);
 
-  // ── Slot / marks state ──────────────────────────────────────────────────
+  // ── Slot counts state ───────────────────────────────────────────────────
   const [slotCounts, setSlotCounts]   = useState<Record<string, number>>({});
-  const [marksItems, setMarksItems]   = useState<MarksItem[]>([]);
-  const [marksBase, setMarksBase]     = useState(0); // total_marks excluding current item
 
   const getCurrentUserId = useCallback(async () => {
     const supabase = createClient();
@@ -194,24 +187,15 @@ export default function InstructorAssessmentsPage() {
 
   // ── Fetch slot counts + weight summary for chosen offering ──────────────
   const fetchOfferingInfo = useCallback(async (offeringId: string, excludeAssessmentId?: string) => {
-    if (!offeringId) { setSlotCounts({}); setMarksItems([]); setMarksBase(0); return; }
+    if (!offeringId) { setSlotCounts({}); return; }
     const supabase = createClient();
-    const [{ data: assessRes }, { data: assignRes }] = await Promise.all([
-      supabase.from('assessments').select('id, title, type, total_marks').eq('offering_id', offeringId).neq('status', 'archived'),
-      supabase.from('assignments').select('id, title, max_score').eq('offering_id', offeringId).neq('status', 'archived'),
-    ]);
+    const { data: assessRes } = await supabase
+      .from('assessments').select('id, type').eq('offering_id', offeringId).neq('status', 'archived');
     const allAssess = (assessRes ?? []) as any[];
     const filtered  = excludeAssessmentId ? allAssess.filter(a => a.id !== excludeAssessmentId) : allAssess;
     const counts: Record<string, number> = { quiz: 0, midterm: 0, final_exam: 0 };
     filtered.forEach((a: any) => { if (counts[a.type] !== undefined) counts[a.type]++; });
     setSlotCounts(counts);
-
-    const items: MarksItem[] = [
-      ...filtered.map((a: any) => ({ title: a.title || TYPE_LABELS[a.type] || a.type, marks: a.total_marks ?? 0 })),
-      ...(assignRes ?? []).map((a: any) => ({ title: a.title || 'Assignment', marks: a.max_score ?? 0 })),
-    ];
-    setMarksItems(items);
-    setMarksBase(items.reduce((s, i) => s + i.marks, 0));
   }, []);
 
   // Re-fetch offering info whenever the form's offeringId or editingId changes
@@ -238,7 +222,6 @@ export default function InstructorAssessmentsPage() {
   const openAddModal = useCallback(() => {
     setEditingId(null);
     setForm({ ...initialForm, offeringId: filterOffering });
-    setPendingFiles([]);
     setSubmitError('');
     setModalOpen(true);
   }, [filterOffering]);
@@ -255,12 +238,11 @@ export default function InstructorAssessmentsPage() {
       availableUntil: a.availableUntil ? new Date(a.availableUntil).toISOString().slice(0, 16) : '',
       status: a.status,
     });
-    setPendingFiles([]);
     setSubmitError('');
     setModalOpen(true);
   }, []);
 
-  const closeModal = useCallback(() => { if (!isSubmitting) { setModalOpen(false); setPendingFiles([]); } }, [isSubmitting]);
+  const closeModal = useCallback(() => { if (!isSubmitting) { setModalOpen(false); } }, [isSubmitting]);
   useEffect(() => {
     if (!modalOpen) return;
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal(); };
@@ -268,37 +250,6 @@ export default function InstructorAssessmentsPage() {
     return () => window.removeEventListener('keydown', h);
   }, [modalOpen, closeModal]);
 
-  // ── File handling ────────────────────────────────────────────────────────
-  const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    setPendingFiles(prev => [...prev, ...files.map(f => ({ file: f, name: f.name, sizeKb: Math.ceil(f.size / 1024) }))]);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-  const removePendingFile = (idx: number) => setPendingFiles(prev => prev.filter((_, i) => i !== idx));
-
-  const uploadAssessmentFiles = async (assessmentId: string, userId: string) => {
-    if (!pendingFiles.length) return;
-    setUploadingFiles(true);
-    const supabase = createClient();
-    for (const pf of pendingFiles) {
-      try {
-        const path = `assessments/${userId}/${Date.now()}-${pf.name}`;
-        const { error: upErr } = await supabase.storage.from('lms-uploads').upload(path, pf.file, { contentType: pf.file.type });
-        if (upErr) { toast.error(`Failed to upload ${pf.name}: ${upErr.message}`); continue; }
-        const { data: urlData } = supabase.storage.from('lms-uploads').getPublicUrl(path);
-        const ext = pf.name.split('.').pop() ?? '';
-        const { data: attData } = await supabase.from('attachments').insert({
-          file_name: pf.name, file_url: urlData.publicUrl,
-          mime_type: pf.file.type || `application/${ext}`,
-          size_kb: pf.sizeKb, uploaded_by: userId,
-        }).select('id').single();
-        if (attData?.id) {
-          await supabase.from('assessment_attachments').insert({ assessment_id: assessmentId, attachment_id: attData.id });
-        }
-      } catch { toast.error(`Skipped ${pf.name} due to an error.`); }
-    }
-    setUploadingFiles(false);
-  };
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -346,9 +297,6 @@ export default function InstructorAssessmentsPage() {
       error = insErr; assessmentId = ins?.id ?? null;
     }
     if (error) { setSubmitError(error.message); setIsSubmitting(false); return; }
-    if (assessmentId && pendingFiles.length) {
-      await uploadAssessmentFiles(assessmentId, userId as string);
-    }
     if (form.status === 'published' && prevStatus !== 'published' && assessmentId) {
       await notifyEnrolledStudents(supabase, form.offeringId, 'exam_published',
         `New ${TYPE_LABELS[form.type] ?? form.type}: ${form.title.trim()}`,
@@ -357,7 +305,13 @@ export default function InstructorAssessmentsPage() {
       );
     }
     toast.success(editingId ? 'Assessment updated.' : 'Assessment created.');
-    setModalOpen(false); setPendingFiles([]); setForm(initialForm); fetchAssessments(); setIsSubmitting(false);
+    setModalOpen(false); setForm(initialForm); setIsSubmitting(false);
+    if (!editingId && assessmentId) {
+      // Redirect straight to question builder so instructor can add sections + questions
+      router.push(`/instructor/assessments/${assessmentId}/build`);
+    } else {
+      fetchAssessments();
+    }
   };
 
   const handleDelete = async () => {
@@ -377,10 +331,6 @@ export default function InstructorAssessmentsPage() {
   const start        = (page - 1) * PAGE_SIZE;
   const end          = Math.min(start + PAGE_SIZE, totalCount);
   const paginated    = filtered.slice(start, end);
-
-  // Live marks preview
-  const proposedMarks = parseInt(form.totalMarks, 10) || 0;
-  const proposedTotal = marksBase + proposedMarks;
 
   return (
     <div className="p-6 space-y-6">
@@ -409,37 +359,74 @@ export default function InstructorAssessmentsPage() {
       {/* ── Modal ───────────────────────────────────────────────────── */}
       {modalOpen && (
         <>
-          <div className="fixed inset-0 bg-black/50 z-40" aria-hidden onClick={closeModal} />
-          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-xl max-h-[92vh] flex flex-col bg-white rounded-xl shadow-xl border border-gray-200" role="dialog" aria-modal="true">
-            <div className="flex items-center justify-between shrink-0 p-6 pb-0">
-              <h2 className="text-lg font-bold text-gray-900">{editingId ? 'Edit Assessment' : 'New Assessment'}</h2>
-              <button type="button" onClick={closeModal} disabled={isSubmitting} className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 disabled:opacity-50">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+          <div className="fixed inset-0 bg-black/60 z-40 backdrop-blur-sm" aria-hidden onClick={closeModal} />
+          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-xl max-h-[94vh] flex flex-col bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden" role="dialog" aria-modal="true">
+
+            {/* ── Coloured top bar + header ────────────────────────────── */}
+            <div className="bg-[#4c1d95] px-6 pt-5 pb-4 shrink-0">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-purple-300 mb-0.5">
+                    {editingId ? 'Edit Assessment' : 'New Assessment'}
+                  </p>
+                  <h2 className="text-xl font-bold text-white leading-tight">
+                    {editingId ? form.title || 'Edit Assessment' : 'Create Assessment'}
+                  </h2>
+                </div>
+                <button type="button" onClick={closeModal} disabled={isSubmitting}
+                  className="p-1.5 rounded-lg text-purple-300 hover:bg-white/10 disabled:opacity-50 mt-0.5">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              {/* Question-type chips (new only) */}
+              {!editingId && (
+                <div>
+                  <p className="text-[10px] text-purple-300 font-semibold uppercase tracking-wide mb-2">
+                    Supports all question formats
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: 'True/False',       color: 'bg-teal-400/20 text-teal-200 border-teal-400/30' },
+                      { label: 'Multiple Choice',   color: 'bg-blue-400/20 text-blue-200 border-blue-400/30' },
+                      { label: 'Fill in Blank',     color: 'bg-yellow-400/20 text-yellow-200 border-yellow-400/30' },
+                      { label: 'Short Answer',      color: 'bg-orange-400/20 text-orange-200 border-orange-400/30' },
+                      { label: 'Matching',          color: 'bg-pink-400/20 text-pink-200 border-pink-400/30' },
+                      { label: 'Multiple Select',   color: 'bg-indigo-400/20 text-indigo-200 border-indigo-400/30' },
+                      { label: 'Essay',             color: 'bg-purple-400/20 text-purple-200 border-purple-400/30' },
+                    ].map(({ label, color }) => (
+                      <span key={label} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${color}`}>
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 p-6">
-              <div className="space-y-4 overflow-y-auto pr-1" style={{ maxHeight: 'calc(90vh - 130px)' }}>
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="space-y-4 overflow-y-auto px-6 py-5" style={{ maxHeight: 'calc(94vh - 220px)' }}>
                 {submitError && (
                   <div className="rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm px-3 py-2">{submitError}</div>
                 )}
 
                 {/* Offering */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Offering *</label>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Course Offering <span className="text-red-500">*</span></label>
                   <select value={form.offeringId} onChange={e => setForm((f: any) => ({ ...f, offeringId: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]">
                     <option value="">— Select offering —</option>
                     {offerings.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                   </select>
                 </div>
 
-                {/* Type selector with slot indicators */}
+                {/* Type + Status */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Assessment Type <span className="text-red-500">*</span></label>
                     <select value={form.type} onChange={e => setForm((f: any) => ({ ...f, type: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]">
                       <option value="quiz" disabled={!editingId && (slotCounts.quiz ?? 0) >= 2}>
                         Quiz{!editingId && form.offeringId ? ` (${slotCounts.quiz ?? 0}/2)` : ''}
                         {!editingId && (slotCounts.quiz ?? 0) >= 2 ? ' — Full' : ''}
@@ -452,12 +439,11 @@ export default function InstructorAssessmentsPage() {
                       </option>
                       <option value="practice">Practice</option>
                     </select>
-                    {/* Slot availability badges */}
                     {form.offeringId && !editingId && (
                       <div className="flex flex-wrap gap-1.5 mt-1.5">
                         {[
-                          { type: 'quiz',       used: slotCounts.quiz ?? 0,       max: 2 },
-                          { type: 'midterm',    used: slotCounts.midterm ?? 0,    max: 1 },
+                          { type: 'quiz', used: slotCounts.quiz ?? 0, max: 2 },
+                          { type: 'midterm', used: slotCounts.midterm ?? 0, max: 1 },
                           { type: 'final_exam', used: slotCounts.final_exam ?? 0, max: 1 },
                         ].map(({ type, used, max }) => (
                           <span key={type} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${used >= max ? 'bg-red-100 text-red-600' : used > 0 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
@@ -468,9 +454,9 @@ export default function InstructorAssessmentsPage() {
                     )}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">Status</label>
                     <select value={form.status} onChange={e => setForm((f: any) => ({ ...f, status: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]">
                       {STATUSES.map(s => <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
                     </select>
                   </div>
@@ -478,128 +464,88 @@ export default function InstructorAssessmentsPage() {
 
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-                  <input type="text" value={form.title} onChange={e => setForm((f: any) => ({ ...f, title: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Title <span className="text-red-500">*</span></label>
+                  <input type="text" value={form.title}
+                    placeholder={`e.g. ${form.type === 'midterm' ? 'Mid-Semester Examination' : form.type === 'final_exam' ? 'Final Examination' : form.type === 'quiz' ? 'Quiz 1' : 'Practice Test'}`}
+                    onChange={e => setForm((f: any) => ({ ...f, title: e.target.value }))}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                 </div>
 
                 {/* Marks / Time / Attempts */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Marks</label>
-                    <input type="number" min={1} value={form.totalMarks} onChange={e => setForm((f: any) => ({ ...f, totalMarks: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Total Marks</label>
+                    <input type="number" min={1} value={form.totalMarks}
+                      onChange={e => setForm((f: any) => ({ ...f, totalMarks: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Time Limit (min)</label>
-                    <input type="number" min={1} value={form.timeLimitMins} placeholder="No limit" onChange={e => setForm((f: any) => ({ ...f, timeLimitMins: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Time Limit (min)</label>
+                    <input type="number" min={1} value={form.timeLimitMins} placeholder="No limit"
+                      onChange={e => setForm((f: any) => ({ ...f, timeLimitMins: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Max Attempts</label>
-                    <input type="number" min={1} value={form.maxAttempts} onChange={e => setForm((f: any) => ({ ...f, maxAttempts: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Max Attempts</label>
+                    <input type="number" min={1} value={form.maxAttempts}
+                      onChange={e => setForm((f: any) => ({ ...f, maxAttempts: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                   </div>
                 </div>
-
-                {/* Live marks summary */}
-                {form.offeringId && (marksItems.length > 0 || proposedMarks > 0) && (
-                  <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs">
-                    <p className="font-semibold text-gray-700 mb-2">Course Marks Summary <span className="text-gray-400 font-normal">(all items must total 100)</span></p>
-                    <div className="space-y-1 mb-2">
-                      {marksItems.map((item, i) => (
-                        <div key={i} className="flex justify-between text-gray-600">
-                          <span className="truncate pr-2">{item.title}</span>
-                          <span className="flex-shrink-0 font-medium">{item.marks}</span>
-                        </div>
-                      ))}
-                      {proposedMarks > 0 && (
-                        <div className="flex justify-between text-[#4c1d95] font-semibold">
-                          <span className="truncate pr-2">{form.title || '(this item)'}</span>
-                          <span className="flex-shrink-0">{proposedMarks}</span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="border-t border-gray-200 pt-2 space-y-1">
-                      <div className="flex justify-between text-gray-500">
-                        <span>Existing</span>
-                        <span>{marksBase}</span>
-                      </div>
-                      <div className={`flex justify-between font-semibold ${proposedTotal > 100 ? 'text-red-600' : proposedTotal === 100 ? 'text-green-600' : 'text-amber-600'}`}>
-                        <span>Total</span>
-                        <span>{proposedTotal}</span>
-                      </div>
-                      {proposedTotal < 100  && <p className="text-amber-600">⚠ {100 - proposedTotal} marks unassigned — all items must sum to 100.</p>}
-                      {proposedTotal > 100  && <p className="text-red-600">✗ Exceeds 100 by {proposedTotal - 100} marks</p>}
-                      {proposedTotal === 100 && <p className="text-green-600">✓ Course marks total exactly 100</p>}
-                    </div>
-                  </div>
-                )}
 
                 {/* Availability */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Available From</label>
-                    <input type="datetime-local" value={form.availableFrom} onChange={e => setForm((f: any) => ({ ...f, availableFrom: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Available From</label>
+                    <input type="datetime-local" value={form.availableFrom}
+                      onChange={e => setForm((f: any) => ({ ...f, availableFrom: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Available Until</label>
-                    <input type="datetime-local" value={form.availableUntil} onChange={e => setForm((f: any) => ({ ...f, availableUntil: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Available Until</label>
+                    <input type="datetime-local" value={form.availableUntil}
+                      onChange={e => setForm((f: any) => ({ ...f, availableUntil: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20 focus:border-[#4c1d95]" />
                   </div>
                 </div>
-
-                {/* Instructions */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
-                  <RichTextEditor value={form.instructions} onChange={(html: string) => setForm((f: any) => ({ ...f, instructions: html }))} minHeight="160px" />
-                </div>
-
-                {/* Attachments */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Attachments <span className="text-gray-400 font-normal">(optional — reference files for students)</span>
-                  </label>
-                  <div className="border border-dashed border-gray-300 rounded-lg p-3 bg-gray-50">
-                    {pendingFiles.length > 0 && (
-                      <ul className="space-y-1.5 mb-3">
-                        {pendingFiles.map((pf, idx) => (
-                          <li key={idx} className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded px-3 py-1.5 text-sm">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
-                              <span className="truncate text-gray-700">{pf.name}</span>
-                              <span className="text-xs text-gray-400 shrink-0">{pf.sizeKb} KB</span>
-                            </div>
-                            <button type="button" onClick={() => removePendingFile(idx)} className="text-gray-400 hover:text-red-500 shrink-0">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <button type="button" onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeWidth={2}/><line x1="12" y1="8" x2="12" y2="16" strokeWidth={2}/><line x1="8" y1="12" x2="16" y2="12" strokeWidth={2}/></svg>
-                      Add Attachment
-                    </button>
-                    <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
-                  </div>
-                </div>
-
 
                 {form.status === 'published' && !editingId && (
-                  <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
+                  <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs px-3 py-2">
                     Students will be notified when this assessment is published.
                   </div>
                 )}
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 mt-4 shrink-0 border-t border-gray-100">
-                <button type="button" onClick={closeModal} disabled={isSubmitting} className="px-4 py-2.5 rounded-lg border border-gray-200 bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 disabled:opacity-50">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50 min-w-[130px]">
-                  {uploadingFiles ? 'Uploading...' : isSubmitting ? 'Saving...' : editingId ? 'Save Changes' : 'Create'}
-                </button>
+              {/* ── Footer ─────────────────────────────────────────────── */}
+              <div className="flex items-center justify-between gap-3 px-6 py-4 shrink-0 border-t border-gray-100 bg-gray-50/50">
+                {!editingId ? (
+                  <p className="text-xs text-gray-400">
+                    After creating you'll be taken to the <span className="font-semibold text-[#4c1d95]">Question Builder</span> to add sections &amp; questions.
+                  </p>
+                ) : (
+                  <span />
+                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button type="button" onClick={closeModal} disabled={isSubmitting}
+                    className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-medium hover:bg-gray-100 disabled:opacity-50">
+                    Cancel
+                  </button>
+                  <button type="submit" disabled={isSubmitting}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#4c1d95] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 min-w-[160px] justify-center">
+                    {isSubmitting ? (
+                      'Saving...'
+                    ) : editingId ? (
+                      'Save Changes'
+                    ) : (
+                      <>
+                        Create &amp; Build Questions
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -683,6 +629,12 @@ export default function InstructorAssessmentsPage() {
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                               {isOpen ? 'Hide' : 'Students'}
                             </button>
+                            <Link href={`/instructor/assessments/${a.id}/build`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-medium hover:bg-blue-100"
+                              title="Build questions">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                              Questions
+                            </Link>
                             <Link href={`/instructor/assessments/${a.id}/submissions`}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium hover:bg-gray-200"
                               title="Full grading view">
