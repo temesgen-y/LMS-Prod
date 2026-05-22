@@ -196,8 +196,7 @@ function DeptHeadLayoutInner({
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
 
   const fmtTime = (ts: string) => {

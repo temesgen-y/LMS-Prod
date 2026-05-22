@@ -98,8 +98,7 @@ export default function AdvisorLayoutClient({ user, children }: { user: AdvisorU
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
 
   const exactOnlyPaths = ['/advisor/dashboard', '/advisor/students'];

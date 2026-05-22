@@ -347,8 +347,7 @@ export default function InstructorLayoutClient({
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
 
   return (

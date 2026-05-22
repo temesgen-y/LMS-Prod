@@ -141,8 +141,7 @@ export default function DashboardLayoutClient({
   const handleLogout = async () => {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.replace('/login');
-    router.refresh();
+    window.location.href = '/login';
   };
 
   const closeAll = () => { setUserMenuOpen(false); setHelpOpen(false); setNotifOpen(false); };
