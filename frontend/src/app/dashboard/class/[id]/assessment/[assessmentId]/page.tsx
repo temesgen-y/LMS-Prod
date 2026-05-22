@@ -91,7 +91,7 @@ type AttemptResult = {
   textResponse: string | null;
 };
 
-type PageState = 'loading' | 'intro' | 'precheck' | 'taking' | 'results' | 'error';
+type PageState = 'loading' | 'intro' | 'precheck' | 'resumeGate' | 'taking' | 'results' | 'error';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -164,8 +164,9 @@ export default function AssessmentTakingPage() {
   // per-question file attachments
   const [questionFiles, setQuestionFiles] = useState<Map<string, File[]>>(new Map());
   const qFileRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const startedAtRef  = useRef<Date | null>(null);
-  const submitRef     = useRef<((timedOut?: boolean) => void) | null>(null);
+  const startedAtRef      = useRef<Date | null>(null);
+  const submitRef         = useRef<((timedOut?: boolean) => void) | null>(null);
+  const resumeTimeLeftRef = useRef<number | null>(null);
 
   // ── Load assessment on mount ───────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ export default function AssessmentTakingPage() {
       // ── Existing attempts ───────────────────────────────────────────────
       const { data: attempts } = await supabase
         .from('assessment_attempts')
-        .select('id, status, attempt_number, score, score_pct, passed')
+        .select('id, status, attempt_number, score, score_pct, passed, started_at')
         .eq('assessment_id', assessmentId)
         .eq('student_id', uid)
         .order('attempt_number', { ascending: false });
@@ -264,8 +265,67 @@ export default function AssessmentTakingPage() {
         setQuestions(qs);
         initAnswers(qs);
         setAttemptId(inProgress.id);
-        startedAtRef.current = new Date();
-        setPageState('taking');
+
+        const actualStart = inProgress.started_at ? new Date(inProgress.started_at) : new Date();
+        startedAtRef.current = actualStart;
+
+        // Compute remaining time so the timer doesn't restart from zero
+        if (a.time_limit_mins) {
+          const elapsedSecs = Math.floor((Date.now() - actualStart.getTime()) / 1000);
+          const remaining = Math.max(0, a.time_limit_mins * 60 - elapsedSecs);
+          resumeTimeLeftRef.current = remaining;
+        }
+
+        // Re-initialise security for non-standard security mode (best-effort)
+        const secMode = a.security_mode ?? 'standard';
+        if (secMode !== 'standard') {
+          try {
+            const fingerprint = {
+              userAgent:           navigator.userAgent,
+              screenResolution:    `${window.screen.width}x${window.screen.height}`,
+              timezone:            Intl.DateTimeFormat().resolvedOptions().timeZone,
+              language:            navigator.language,
+              platform:            navigator.platform,
+              colorDepth:          window.screen.colorDepth,
+              hardwareConcurrency: navigator.hardwareConcurrency,
+            };
+            const res = await fetch('/api/exam/start', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ attemptId: inProgress.id, studentId: uid, assessmentId, fingerprint }),
+            });
+            if (res.ok) {
+              const { sessionId: sid } = await res.json();
+              setSessionId(sid);
+              const maxRisk = a.max_risk_score ?? 30;
+              const tracker = new ViolationTracker({
+                sessionId:             sid,
+                attemptId:             inProgress.id,
+                studentId:             uid,
+                assessmentId,
+                violationThreshold:    maxRisk,
+                autoSubmitOnViolation: maxRisk > 0,
+                onThresholdExceeded:   () => { submitRef.current?.(false); },
+                onViolation:           (_evt, risk) => {
+                  if (risk >= maxRisk * 0.7) {
+                    setViolationBanner(`Warning: Your activity score is high (${risk}/${maxRisk}). Further violations may result in auto-submission.`);
+                    setTimeout(() => setViolationBanner(null), 5000);
+                  }
+                },
+              });
+              trackerRef.current = tracker;
+              const security = new SessionSecurity({ sessionId: sid, attemptId: inProgress.id });
+              sessionRef.current = security;
+              security.start();
+            }
+          } catch { /* best-effort — don't block exam resume */ }
+        }
+
+        // If the exam requires fullscreen we must get a user gesture first.
+        // Route through the resume gate so the student clicks a button that
+        // synchronously calls requestFullscreen().
+        const needsGate = (a.security_mode ?? 'standard') !== 'standard' || (a.require_fullscreen ?? false);
+        setPageState(needsGate ? 'resumeGate' : 'taking');
         return;
       }
 
@@ -289,7 +349,16 @@ export default function AssessmentTakingPage() {
 
   useEffect(() => {
     if (pageState !== 'taking' || !assessment?.time_limit_mins) return;
-    setTimeLeft(assessment.time_limit_mins * 60);
+    // On resume, use the pre-computed remaining seconds; on fresh start, use the full limit.
+    const initial = resumeTimeLeftRef.current ?? assessment.time_limit_mins * 60;
+    resumeTimeLeftRef.current = null; // consume
+    if (initial <= 0) {
+      setTimeLeft(0);
+      setTimeExpired(true);
+      submitRef.current?.(true);
+      return;
+    }
+    setTimeLeft(initial);
     const interval = setInterval(() => {
       setTimeLeft(prev => {
         if (prev === null || prev <= 1) {
@@ -380,8 +449,12 @@ export default function AssessmentTakingPage() {
 
   async function startAttempt() {
     if (!userId || !enrollmentId || !assessment) return;
-    // If security is enabled, show PreExamCheck before the exam
-    if (assessment.security_mode !== 'standard') {
+    // Show PreExamCheck whenever any feature requires a setup dialog
+    const needsPrecheck = assessment.security_mode !== 'standard'
+      || assessment.require_fullscreen
+      || assessment.require_webcam
+      || assessment.require_identity_verification;
+    if (needsPrecheck) {
       setPageState('precheck');
       return;
     }
@@ -681,10 +754,14 @@ export default function AssessmentTakingPage() {
   if (pageState === 'precheck' && assessment) {
     const sec: ExamSecuritySettings = {
       requireFullscreen:     assessment.require_fullscreen,
-      blockTabSwitch:        true,
+      blockTabSwitch:        assessment.security_mode !== 'standard' || assessment.block_keyboard_shortcuts,
       blockCopyPaste:        assessment.block_copy_paste,
+      blockTextSelection:    assessment.block_text_selection,
       blockRightClick:       assessment.block_right_click,
       blockDevtools:         assessment.detect_devtools,
+      detectScreenShare:     assessment.detect_screen_share,
+      detectExternalDisplay: assessment.detect_external_display,
+      detectRemoteSoftware:  assessment.detect_remote_software,
       requireWebcam:         assessment.require_webcam,
       requireIdentityCheck:  assessment.require_identity_verification,
       faceDetectionEnabled:  assessment.require_webcam,
@@ -699,6 +776,52 @@ export default function AssessmentTakingPage() {
         onReady={stream => doStartAttempt(stream)}
         onCancel={() => setPageState('intro')}
       />
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RESUME GATE (requires user gesture for fullscreen)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (pageState === 'resumeGate' && assessment) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-[#4c1d95] px-6 py-5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-purple-300 mb-1">Resume Exam</p>
+            <h1 className="text-xl font-bold text-white">{assessment.title}</h1>
+            {assessment.time_limit_mins && (
+              <p className="text-purple-300 text-xs mt-1">Timer will continue from where you left off</p>
+            )}
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-700">
+              <p className="font-semibold mb-1">⚠ Security Notice</p>
+              <p>This exam has security features enabled. Click <strong>Resume Exam</strong> to continue in the required environment.</p>
+            </div>
+            {assessment.require_fullscreen && (
+              <p className="text-xs text-gray-500">The exam will enter fullscreen mode. Do not exit fullscreen during the exam.</p>
+            )}
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => router.push(backUrl)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Leave Exam
+              </button>
+              <button
+                onClick={() => {
+                  if (assessment.require_fullscreen && document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(() => {});
+                  }
+                  setPageState('taking');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-[#4c1d95] text-white text-sm font-semibold hover:opacity-90"
+              >
+                Resume Exam →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -894,10 +1017,15 @@ export default function AssessmentTakingPage() {
       <SecureExamShell
         tracker={trackerRef.current}
         requireFullscreen={assessment.require_fullscreen}
-        blockTabSwitch={assessment.security_mode !== 'standard'}
+        blockTabSwitch={assessment.security_mode !== 'standard' || assessment.block_keyboard_shortcuts}
         blockCopyPaste={assessment.block_copy_paste}
+        blockKeyboardShortcuts={assessment.block_keyboard_shortcuts}
         blockRightClick={assessment.block_right_click}
+        blockTextSelection={assessment.block_text_selection}
         blockDevtools={assessment.detect_devtools}
+        detectScreenShare={assessment.detect_screen_share}
+        detectExternalDisplay={assessment.detect_external_display}
+        detectRemoteSoftware={assessment.detect_remote_software}
         showWarnings={true}
         onViolationWarning={msg => { setViolationBanner(msg); setTimeout(() => setViolationBanner(null), 6000); }}
         onFullscreenExit={() => trackerRef.current?.record('fullscreen_exit')}
@@ -906,7 +1034,7 @@ export default function AssessmentTakingPage() {
 
         {/* ── Violation warning banner ─────────────────────────────────── */}
         {violationBanner && (
-          <div className="fixed top-0 inset-x-0 z-40 bg-amber-500 text-white text-sm font-semibold px-4 py-2.5 flex items-center justify-between shadow-lg">
+          <div className="sticky top-0 z-30 w-full bg-amber-500 text-white text-sm font-semibold px-4 py-2.5 flex items-center justify-between shadow-lg">
             <span>⚠ {violationBanner}</span>
             <button onClick={() => setViolationBanner(null)} className="text-white/70 hover:text-white text-lg leading-none ml-4">✕</button>
           </div>
@@ -942,14 +1070,29 @@ export default function AssessmentTakingPage() {
           </div>
         )}
 
-        {/* Sticky header */}
-        <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
+        {/* Sticky header — top offset accounts for violation banner height (~40px) */}
+        <div className={`sticky ${violationBanner ? 'top-10' : 'top-0'} z-20 bg-white border-b border-gray-200 shadow-sm`}>
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-[10px] text-gray-400 uppercase tracking-wider">{assessment.type.replace(/_/g, ' ')}</p>
               <h1 className="text-sm font-bold text-gray-900 truncate">{assessment.title}</h1>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
+              {/* Security mode badge */}
+              {assessment.security_mode !== 'standard' && (
+                <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${
+                  assessment.security_mode === 'proctored'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                }`}>
+                  🔒 {assessment.security_mode}
+                </span>
+              )}
+              {(assessment.block_copy_paste || assessment.block_keyboard_shortcuts) && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                  🛡 Secured
+                </span>
+              )}
               <span className="text-xs text-gray-500 hidden sm:block">{answered}/{questions.length} answered</span>
               {timeLeft !== null && (
                 <span className={`font-mono text-sm font-bold px-3 py-1.5 rounded-lg ${

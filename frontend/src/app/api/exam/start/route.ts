@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
       ?? req.headers.get('x-real-ip')
       ?? null;
-    const userAgent = req.headers.get('user-agent') ?? null;
+    const rawUserAgent = req.headers.get('user-agent') ?? null;
 
     // Detect assessment security mode for the session record
     const { data: assessRow } = await supabase
@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       browser:    /Chrome/.test(fingerprint.userAgent ?? '') ? 'Chrome' : /Firefox/.test(fingerprint.userAgent ?? '') ? 'Firefox' : 'Other',
       deviceType: /Mobile/.test(fingerprint.userAgent ?? '') ? 'mobile' : 'desktop',
       touchEnabled: false,
+      userAgent: rawUserAgent,
     } : null;
 
     const { data: session, error } = await supabase
@@ -47,7 +48,6 @@ export async function POST(req: NextRequest) {
         assessment_id:       assessmentId,
         security_mode:       (assessRow as any)?.security_mode ?? 'standard',
         ip_address:          ip,
-        user_agent:          userAgent,
         browser_fingerprint: fingerprint ?? null,
         device_metadata:     deviceMetadata,
         last_heartbeat_at:   new Date().toISOString(),

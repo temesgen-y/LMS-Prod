@@ -15,8 +15,12 @@ export interface ExamSecuritySettings {
   requireFullscreen:      boolean;
   blockTabSwitch:         boolean;
   blockCopyPaste:         boolean;
+  blockTextSelection:     boolean;
   blockRightClick:        boolean;
   blockDevtools:          boolean;
+  detectScreenShare:      boolean;
+  detectExternalDisplay:  boolean;
+  detectRemoteSoftware:   boolean;
   requireWebcam:          boolean;
   requireIdentityCheck:   boolean;
   faceDetectionEnabled:   boolean;
@@ -234,12 +238,17 @@ export default function PreExamCheck({ assessmentTitle, timeLimitMins, totalMark
             <>
               <h2 className="text-base font-semibold text-gray-900 mb-3">Exam Rules</h2>
               <div className="space-y-2 text-sm text-gray-700 mb-4">
-                {security.requireFullscreen   && <Rule icon="⛶" text="The exam must be taken in fullscreen mode." />}
-                {security.blockTabSwitch      && <Rule icon="🚫" text="Switching tabs or windows will be recorded as a violation." />}
-                {security.blockCopyPaste      && <Rule icon="📋" text="Copying and pasting is disabled during the exam." />}
-                {security.requireWebcam       && <Rule icon="📷" text="Your webcam will be active throughout the exam." />}
-                {security.faceDetectionEnabled && <Rule icon="👤" text="Face detection is active — ensure your face is visible." />}
-                {security.blockDevtools       && <Rule icon="🔧" text="Browser developer tools are blocked." />}
+                {security.requireFullscreen     && <Rule icon="⛶" text="The exam must be taken in fullscreen mode." />}
+                {security.blockTabSwitch        && <Rule icon="🚫" text="Switching tabs or windows will be recorded as a violation." />}
+                {security.blockCopyPaste        && <Rule icon="📋" text="Copying and pasting is disabled during the exam." />}
+                {security.blockTextSelection    && <Rule icon="✋" text="Text selection is disabled during the exam." />}
+                {security.blockRightClick       && <Rule icon="🖱" text="Right-click is disabled during the exam." />}
+                {security.blockDevtools         && <Rule icon="🔧" text="Browser developer tools are blocked." />}
+                {security.detectScreenShare     && <Rule icon="🖥" text="Screen sharing detection is active." />}
+                {security.detectExternalDisplay && <Rule icon="📺" text="External display detection is active. Disconnect any secondary monitors." />}
+                {security.detectRemoteSoftware  && <Rule icon="🔒" text="Remote control software detection is active." />}
+                {security.requireWebcam         && <Rule icon="📷" text="Your webcam will be active throughout the exam." />}
+                {security.faceDetectionEnabled  && <Rule icon="👤" text="Face detection is active — ensure your face is visible." />}
                 <Rule icon="⏰" text="Your exam will be automatically submitted when time expires." />
                 <Rule icon="⚠️" text="Violations are logged and reported to your instructor." />
               </div>

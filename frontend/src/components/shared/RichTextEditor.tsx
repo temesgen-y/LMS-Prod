@@ -291,7 +291,7 @@ export default function RichTextEditor({
           suppressContentEditableWarning
           onInput={() => { if (editorRef.current) { onChange(editorRef.current.innerHTML); updateCount(); } }}
           className="p-3 text-sm text-gray-800 focus:outline-none"
-          style={{ minHeight, lineHeight: 1.7 }}
+          style={{ minHeight, lineHeight: 1.7, userSelect: 'text', WebkitUserSelect: 'text' }}
         />
 
         {/* Footer */}

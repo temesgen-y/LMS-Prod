@@ -1,19 +1,25 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ViolationTracker } from '@/lib/exam/violationTracker';
 
 interface Props {
-  tracker:             ViolationTracker | null;
-  requireFullscreen:   boolean;
-  blockTabSwitch:      boolean;
-  blockCopyPaste:      boolean;
-  blockRightClick:     boolean;
-  blockDevtools:       boolean;
-  showWarnings:        boolean;
-  onViolationWarning:  (msg: string) => void;
-  onFullscreenExit:    () => void;
-  children:            React.ReactNode;
+  tracker:                ViolationTracker | null;
+  requireFullscreen:      boolean;
+  blockTabSwitch:         boolean;
+  blockCopyPaste:         boolean;
+  blockKeyboardShortcuts: boolean;
+  blockRightClick:        boolean;
+  blockTextSelection:     boolean;
+  blockDevtools:          boolean;
+  detectScreenShare:      boolean;
+  detectExternalDisplay:  boolean;
+  detectRemoteSoftware:   boolean;
+  showWarnings:           boolean;
+  onViolationWarning:     (msg: string) => void;
+  onFullscreenExit:       () => void;
+  children:               React.ReactNode;
 }
 
 export default function SecureExamShell({
@@ -21,30 +27,35 @@ export default function SecureExamShell({
   requireFullscreen,
   blockTabSwitch,
   blockCopyPaste,
+  blockKeyboardShortcuts,
   blockRightClick,
+  blockTextSelection,
   blockDevtools,
+  detectScreenShare,
+  detectExternalDisplay,
+  detectRemoteSoftware,
   showWarnings,
   onViolationWarning,
   onFullscreenExit,
   children,
 }: Props) {
-  const devtoolsCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const periodicRef   = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [mounted, setMounted] = useState(false);
   const warn = useCallback((msg: string) => { if (showWarnings) onViolationWarning(msg); }, [showWarnings, onViolationWarning]);
+
+  // Portal needs document — only available after mount
+  useEffect(() => { setMounted(true); }, []);
 
   // ── Tab / window switch detection ──────────────────────────────────────────
   useEffect(() => {
     if (!blockTabSwitch) return;
-
     const onVisibilityChange = () => {
       if (document.hidden) {
         tracker?.record('visibility_hidden', { detail: 'Page hidden' });
         warn('Switching tabs or windows is not allowed.');
       }
     };
-    const onBlur = () => {
-      tracker?.record('window_blur');
-    };
-
+    const onBlur = () => { tracker?.record('window_blur'); };
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('blur', onBlur);
     return () => {
@@ -53,22 +64,19 @@ export default function SecureExamShell({
     };
   }, [blockTabSwitch, tracker, warn]);
 
-  // ── Fullscreen enforcement ─────────────────────────────────────────────────
+  // ── Fullscreen enforcement (re-enter on exit) ──────────────────────────────
   useEffect(() => {
     if (!requireFullscreen) return;
-
     const onFullscreenChange = () => {
       if (!document.fullscreenElement) {
         tracker?.record('fullscreen_exit');
         warn('You must remain in fullscreen mode.');
         onFullscreenExit();
-        // Re-request fullscreen after short delay
         setTimeout(() => {
           document.documentElement.requestFullscreen?.().catch(() => {});
         }, 1500);
       }
     };
-
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, [requireFullscreen, tracker, warn, onFullscreenExit]);
@@ -76,23 +84,33 @@ export default function SecureExamShell({
   // ── Copy / paste / cut blocking ────────────────────────────────────────────
   useEffect(() => {
     if (!blockCopyPaste) return;
-
-    const preventDefault = (e: ClipboardEvent) => {
+    const prevent = (e: ClipboardEvent) => {
       e.preventDefault();
       const type = e.type === 'copy' ? 'copy_attempt' : e.type === 'paste' ? 'paste_attempt' : 'keyboard_shortcut';
       tracker?.record(type);
       warn('Copy and paste are disabled during this exam.');
     };
-
-    document.addEventListener('copy',  preventDefault as EventListener);
-    document.addEventListener('cut',   preventDefault as EventListener);
-    document.addEventListener('paste', preventDefault as EventListener);
+    document.addEventListener('copy',  prevent as EventListener);
+    document.addEventListener('cut',   prevent as EventListener);
+    document.addEventListener('paste', prevent as EventListener);
     return () => {
-      document.removeEventListener('copy',  preventDefault as EventListener);
-      document.removeEventListener('cut',   preventDefault as EventListener);
-      document.removeEventListener('paste', preventDefault as EventListener);
+      document.removeEventListener('copy',  prevent as EventListener);
+      document.removeEventListener('cut',   prevent as EventListener);
+      document.removeEventListener('paste', prevent as EventListener);
     };
   }, [blockCopyPaste, tracker, warn]);
+
+  // ── Text selection blocking ────────────────────────────────────────────────
+  useEffect(() => {
+    if (!blockTextSelection) return;
+    const prevent = (e: Event) => {
+      // Allow selection inside answer inputs, textareas, and rich-text editors
+      if ((e.target as HTMLElement).closest?.('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+    };
+    document.addEventListener('selectstart', prevent);
+    return () => document.removeEventListener('selectstart', prevent);
+  }, [blockTextSelection]);
 
   // ── Right-click blocking ───────────────────────────────────────────────────
   useEffect(() => {
@@ -100,29 +118,20 @@ export default function SecureExamShell({
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();
       tracker?.record('right_click');
+      warn('Right-click is disabled during this exam.');
     };
     document.addEventListener('contextmenu', onContextMenu);
     return () => document.removeEventListener('contextmenu', onContextMenu);
-  }, [blockRightClick, tracker]);
+  }, [blockRightClick, tracker, warn]);
 
   // ── Keyboard shortcut blocking ─────────────────────────────────────────────
   useEffect(() => {
-    const BLOCKED: string[] = [
-      'F12', 'F5',
-      // Ctrl+C/V/X/U/S/P/A/F
-      ...['c','v','x','u','s','p','a','f'].map(k => `ctrl+${k}`),
-      ...['c','v','x','u','s','p','a','f'].map(k => `meta+${k}`),
-      'ctrl+shift+i', 'ctrl+shift+j', 'ctrl+shift+c',
-      'meta+shift+i', 'meta+shift+j', 'meta+shift+c',
-      'ctrl+shift+k',
-    ];
-
+    if (!blockCopyPaste && !blockKeyboardShortcuts && !blockDevtools) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const key   = e.key.toLowerCase();
 
-      // Always block F12 and DevTools combos if blockDevtools is on
       if (blockDevtools) {
         if (e.key === 'F12' || (ctrl && shift && ['i','j','c','k'].includes(key))) {
           e.preventDefault();
@@ -132,49 +141,103 @@ export default function SecureExamShell({
         }
       }
 
-      if (!blockCopyPaste) return;
-      if (ctrl && ['c','v','x','a'].includes(key)) {
-        if (key === 'a') return; // allow select-all
-        e.preventDefault();
-        tracker?.record('keyboard_shortcut', { key: e.key });
-        warn('Copy and paste are disabled.');
-      }
-
-      // Block print
-      if (ctrl && key === 'p') {
-        e.preventDefault();
-        tracker?.record('print_attempt');
-        warn('Printing is not allowed during the exam.');
+      if (blockCopyPaste || blockKeyboardShortcuts) {
+        if (ctrl && ['c','v','x'].includes(key)) {
+          e.preventDefault();
+          tracker?.record('keyboard_shortcut', { key: e.key });
+          warn('Keyboard shortcuts are disabled during this exam.');
+          return;
+        }
+        if (ctrl && key === 'p') {
+          e.preventDefault();
+          tracker?.record('print_attempt');
+          warn('Printing is not allowed during the exam.');
+          return;
+        }
+        if (ctrl && ['u','s','f','t','l'].includes(key)) {
+          e.preventDefault();
+          tracker?.record('keyboard_shortcut', { key: e.key });
+          return;
+        }
+        if ((e.altKey && e.key === 'F4') || (ctrl && key === 'w')) {
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'F5' || (ctrl && key === 'r')) {
+          e.preventDefault();
+          tracker?.record('keyboard_shortcut', { key: e.key });
+          return;
+        }
       }
     };
-
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [blockCopyPaste, blockDevtools, tracker, warn]);
+  }, [blockCopyPaste, blockKeyboardShortcuts, blockDevtools, tracker, warn]);
 
   // ── DevTools detection (size heuristic) ───────────────────────────────────
   useEffect(() => {
     if (!blockDevtools) return;
-
     const check = () => {
-      const threshold = 160;
-      const widthDiff  = window.outerWidth  - window.innerWidth;
-      const heightDiff = window.outerHeight - window.innerHeight;
-      if (widthDiff > threshold || heightDiff > threshold) {
-        tracker?.record('devtools_open', { widthDiff, heightDiff });
+      const wDiff = window.outerWidth  - window.innerWidth;
+      const hDiff = window.outerHeight - window.innerHeight;
+      if (wDiff > 160 || hDiff > 160) {
+        tracker?.record('devtools_open', { wDiff, hDiff });
         warn('Developer tools are not allowed during this exam. Please close them.');
       }
     };
-
-    devtoolsCheckRef.current = setInterval(check, 2000);
-    return () => { if (devtoolsCheckRef.current) clearInterval(devtoolsCheckRef.current); };
+    const id = setInterval(check, 2000);
+    return () => clearInterval(id);
   }, [blockDevtools, tracker, warn]);
 
-  // ── Text selection blocking ────────────────────────────────────────────────
+  // ── Screen sharing / external display / remote software detection ──────────
+  useEffect(() => {
+    if (!detectScreenShare && !detectExternalDisplay && !detectRemoteSoftware) return;
+    const check = () => {
+      if (detectExternalDisplay) {
+        const extended = (window.screen as any).isExtended;
+        if (extended === true) {
+          tracker?.record('external_display', { extended });
+          warn('An external display has been detected. Please disconnect it.');
+        }
+      }
+      if (detectRemoteSoftware) {
+        const isWebDriver = !!(navigator as any).webdriver;
+        const hasPhantom  = !!(window as any).callPhantom || !!(window as any)._phantom;
+        if (isWebDriver || hasPhantom) {
+          tracker?.record('remote_software_detected', { isWebDriver, hasPhantom });
+          warn('Remote control software has been detected.');
+        }
+      }
+    };
+    periodicRef.current = setInterval(check, 5000);
+    check();
+    return () => { if (periodicRef.current) clearInterval(periodicRef.current); };
+  }, [detectScreenShare, detectExternalDisplay, detectRemoteSoftware, tracker, warn]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const noSelect = blockTextSelection || blockCopyPaste;
+  const wrapperCls = noSelect ? 'select-none' : '';
+
+  // Portal the exam to document.body whenever any meaningful security is active
+  // (fullscreen required OR tab-switch detection active). This bypasses the
+  // dashboard layout's stacking context so the sidebar/header are covered.
+  const shouldPortal = (requireFullscreen || blockTabSwitch) && mounted;
+  if (shouldPortal) {
+    return createPortal(
+      <div
+        className={`fixed inset-0 z-[99999] bg-gray-50 overflow-y-auto ${wrapperCls}`}
+        onDragStart={noSelect ? e => e.preventDefault() : undefined}
+      >
+        {children}
+      </div>,
+      document.body
+    );
+  }
+
   return (
     <div
-      className={`${blockCopyPaste ? 'select-none' : ''}`}
-      onDragStart={blockCopyPaste ? e => e.preventDefault() : undefined}
+      className={wrapperCls || undefined}
+      onDragStart={noSelect ? e => e.preventDefault() : undefined}
     >
       {children}
     </div>
