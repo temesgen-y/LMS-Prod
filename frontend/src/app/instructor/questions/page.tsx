@@ -6,8 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 
 type Question = { id: string; assessmentId: string; assessmentTitle: string; type: string; body: string; marks: number; sortOrder: number; mediaUrl: string; explanation: string; };
 type AssessmentOption = { id: string; label: string };
-const TYPES = ['mcq', 'true_false', 'short_answer', 'fill_blank', 'essay', 'matching'];
-const TYPE_LABELS: Record<string, string> = { mcq: 'MCQ', true_false: 'True/False', short_answer: 'Short Answer', fill_blank: 'Fill Blank', essay: 'Essay', matching: 'Matching' };
+const TYPES = ['mcq', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'essay', 'matching'];
+const TYPE_LABELS: Record<string, string> = { mcq: 'MCQ', true_false: 'True/False', multiple_select: 'Multiple Select', short_answer: 'Short Answer', fill_blank: 'Fill Blank', essay: 'Essay', matching: 'Matching' };
 const PAGE_SIZE = 10;
 const initialForm = { assessmentId: '', type: 'mcq', body: '', marks: '1', sortOrder: '0', mediaUrl: '', explanation: '' };
 

@@ -6,6 +6,11 @@ import { createClient } from '@/lib/supabase/client';
 import { getLetterGrade, getGradeColor } from '@/utils/gradeCalculator';
 import { updateGradebookItem } from '@/utils/updateGradebook';
 import RichTextEditor from '@/components/shared/RichTextEditor';
+import PreExamCheck, { ExamSecuritySettings } from '@/components/exam/PreExamCheck';
+import SecureExamShell from '@/components/exam/SecureExamShell';
+import WebcamProctor from '@/components/exam/WebcamProctor';
+import { ViolationTracker } from '@/lib/exam/violationTracker';
+import { SessionSecurity } from '@/lib/exam/sessionSecurity';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +26,28 @@ type Assessment = {
   available_until: string | null;
   show_result: boolean;
   show_answers: boolean;
+  // Security
+  security_mode:                  string;
+  require_fullscreen:             boolean;
+  block_copy_paste:               boolean;
+  block_keyboard_shortcuts:       boolean;
+  block_right_click:              boolean;
+  block_text_selection:           boolean;
+  detect_devtools:                boolean;
+  detect_screen_share:            boolean;
+  detect_external_display:        boolean;
+  detect_remote_software:         boolean;
+  max_tab_switches:               number;
+  max_fullscreen_exits:           number;
+  max_risk_score:                 number;
+  require_webcam:                 boolean;
+  enable_audio_monitoring:        boolean;
+  snapshot_interval_seconds:      number;
+  require_identity_verification:  boolean;
+  one_question_at_a_time:         boolean;
+  prevent_backtracking:           boolean;
+  question_pool_size:             number | null;
+  grace_period_seconds:           number;
 };
 
 type AttachmentRef = {
@@ -64,7 +91,7 @@ type AttemptResult = {
   textResponse: string | null;
 };
 
-type PageState = 'loading' | 'intro' | 'taking' | 'results' | 'error';
+type PageState = 'loading' | 'intro' | 'precheck' | 'taking' | 'results' | 'error';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -121,6 +148,13 @@ export default function AssessmentTakingPage() {
   const [timeExpired, setTimeExpired] = useState(false);
   // key = questionId, value = pool answer currently "selected" by the student before assigning
   const [matchingSelected, setMatchingSelected] = useState<Record<string, string | null>>({});
+  // Security
+  const [sessionId, setSessionId]             = useState<string | null>(null);
+  const [webcamStream, setWebcamStream]       = useState<MediaStream | null>(null);
+  const [violationBanner, setViolationBanner] = useState<string | null>(null);
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
+  const trackerRef  = useRef<ViolationTracker | null>(null);
+  const sessionRef  = useRef<SessionSecurity | null>(null);
 
   // open-ended (assessment with no structured questions)
   const [openResponse, setOpenResponse] = useState('');
@@ -158,7 +192,7 @@ export default function AssessmentTakingPage() {
 
       const { data: assess } = await supabase
         .from('assessments')
-        .select('id, title, type, instructions, total_marks, time_limit_mins, max_attempts, available_from, available_until, show_result, show_answers')
+        .select('id, title, type, instructions, total_marks, time_limit_mins, max_attempts, available_from, available_until, show_result, show_answers, security_mode, require_fullscreen, block_copy_paste, block_keyboard_shortcuts, block_right_click, block_text_selection, detect_devtools, detect_screen_share, detect_external_display, detect_remote_software, max_tab_switches, max_fullscreen_exits, max_risk_score, require_webcam, enable_audio_monitoring, snapshot_interval_seconds, require_identity_verification, one_question_at_a_time, prevent_backtracking, question_pool_size, grace_period_seconds')
         .eq('id', assessmentId)
         .maybeSingle();
       if (!assess) { setErrorMsg('Assessment not found.'); setPageState('error'); return; }
@@ -167,6 +201,27 @@ export default function AssessmentTakingPage() {
         ...a,
         show_result:  a.show_result  ?? true,
         show_answers: a.show_answers ?? false,
+        security_mode: a.security_mode ?? 'standard',
+        require_fullscreen: a.require_fullscreen ?? false,
+        block_copy_paste: a.block_copy_paste ?? false,
+        block_keyboard_shortcuts: a.block_keyboard_shortcuts ?? false,
+        block_right_click: a.block_right_click ?? false,
+        block_text_selection: a.block_text_selection ?? false,
+        detect_devtools: a.detect_devtools ?? false,
+        detect_screen_share: a.detect_screen_share ?? false,
+        detect_external_display: a.detect_external_display ?? false,
+        detect_remote_software: a.detect_remote_software ?? false,
+        max_tab_switches: a.max_tab_switches ?? 3,
+        max_fullscreen_exits: a.max_fullscreen_exits ?? 3,
+        max_risk_score: a.max_risk_score ?? 30,
+        require_webcam: a.require_webcam ?? false,
+        enable_audio_monitoring: a.enable_audio_monitoring ?? false,
+        snapshot_interval_seconds: a.snapshot_interval_seconds ?? 30,
+        require_identity_verification: a.require_identity_verification ?? false,
+        one_question_at_a_time: a.one_question_at_a_time ?? false,
+        prevent_backtracking: a.prevent_backtracking ?? false,
+        question_pool_size: a.question_pool_size ?? null,
+        grace_period_seconds: a.grace_period_seconds ?? 30,
       });
 
       // ── Reference file attachments ──────────────────────────────────────
@@ -325,6 +380,16 @@ export default function AssessmentTakingPage() {
 
   async function startAttempt() {
     if (!userId || !enrollmentId || !assessment) return;
+    // If security is enabled, show PreExamCheck before the exam
+    if (assessment.security_mode !== 'standard') {
+      setPageState('precheck');
+      return;
+    }
+    await doStartAttempt(null);
+  }
+
+  async function doStartAttempt(stream: MediaStream | null) {
+    if (!userId || !enrollmentId || !assessment) return;
     const supabase = createClient();
     const { data: att, error: err } = await supabase
       .from('assessment_attempts')
@@ -338,12 +403,77 @@ export default function AssessmentTakingPage() {
       })
       .select('id')
       .single();
-    if (err || !att) { setErrorMsg('Failed to start attempt. Try again.'); return; }
+    if (err || !att) { setErrorMsg('Failed to start attempt. Try again.'); setPageState('error'); return; }
+
+    const newAttemptId = (att as any).id;
+
+    // Start exam security session
+    try {
+      const fingerprint = {
+        userAgent:           navigator.userAgent,
+        screenResolution:    `${window.screen.width}x${window.screen.height}`,
+        timezone:            Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language:            navigator.language,
+        platform:            navigator.platform,
+        colorDepth:          window.screen.colorDepth,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+      };
+      const res = await fetch('/api/exam/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          attemptId:    newAttemptId,
+          studentId:    userId,
+          assessmentId: assessmentId,
+          fingerprint,
+        }),
+      });
+      if (res.ok) {
+        const { sessionId: sid } = await res.json();
+        setSessionId(sid);
+
+        // Initialize violation tracker
+        const tracker = new ViolationTracker({
+          sessionId:             sid,
+          attemptId:             newAttemptId,
+          studentId:             userId,
+          assessmentId:          assessmentId,
+          violationThreshold:    assessment.max_risk_score,
+          autoSubmitOnViolation: assessment.max_risk_score > 0,
+          onThresholdExceeded:   () => { submitRef.current?.(false); },
+          onViolation:           (_evt, risk) => {
+            if (risk >= assessment.max_risk_score * 0.7) {
+              setViolationBanner(`Warning: Your activity score is high (${risk}/${assessment.max_risk_score}). Further violations may result in auto-submission.`);
+              setTimeout(() => setViolationBanner(null), 5000);
+            }
+          },
+        });
+        trackerRef.current = tracker;
+
+        // Initialize session heartbeat
+        const security = new SessionSecurity({ sessionId: sid, attemptId: newAttemptId });
+        sessionRef.current = security;
+        security.start();
+      }
+    } catch { /* best-effort — don't block exam start */ }
+
+    if (stream) setWebcamStream(stream);
+
     const qs = await fetchQuestions(supabase, assessmentId);
-    setQuestions(qs);
-    initAnswers(qs);
-    setAttemptId((att as any).id);
+
+    // Apply question pool size if set
+    let selected = qs;
+    if (assessment.question_pool_size && qs.length > assessment.question_pool_size) {
+      const shuffled = [...qs].sort(() => Math.random() - 0.5);
+      selected = shuffled.slice(0, assessment.question_pool_size);
+      selected.sort((a, b) => a.sort_order - b.sort_order);
+    }
+
+    setQuestions(selected);
+    initAnswers(selected);
+    setAttemptId(newAttemptId);
     startedAtRef.current = new Date();
+    setCurrentQuestionIdx(0);
     setPageState('taking');
   }
 
@@ -352,6 +482,13 @@ export default function AssessmentTakingPage() {
   async function handleSubmit(timedOut = false) {
     if (!attemptId || !userId || !enrollmentId || !assessment || submitting) return;
     setSubmitting(true);
+
+    // Clean up security systems
+    trackerRef.current?.flush();
+    trackerRef.current?.destroy();
+    sessionRef.current?.endSession(timedOut ? 'timed_out' : 'submitted');
+    webcamStream?.getTracks().forEach(t => t.stop());
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 
     const supabase = createClient();
     const timeTaken = startedAtRef.current
@@ -537,6 +674,34 @@ export default function AssessmentTakingPage() {
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // PRE-EXAM CHECK (security mode only)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  if (pageState === 'precheck' && assessment) {
+    const sec: ExamSecuritySettings = {
+      requireFullscreen:     assessment.require_fullscreen,
+      blockTabSwitch:        true,
+      blockCopyPaste:        assessment.block_copy_paste,
+      blockRightClick:       assessment.block_right_click,
+      blockDevtools:         assessment.detect_devtools,
+      requireWebcam:         assessment.require_webcam,
+      requireIdentityCheck:  assessment.require_identity_verification,
+      faceDetectionEnabled:  assessment.require_webcam,
+      showViolationWarnings: true,
+    };
+    return (
+      <PreExamCheck
+        assessmentTitle={assessment.title}
+        timeLimitMins={assessment.time_limit_mins}
+        totalMarks={assessment.total_marks}
+        security={sec}
+        onReady={stream => doStartAttempt(stream)}
+        onCancel={() => setPageState('intro')}
+      />
+    );
+  }
+
   if (pageState === 'loading') return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="flex items-center gap-2 text-gray-400 text-sm animate-pulse">
@@ -721,8 +886,45 @@ export default function AssessmentTakingPage() {
       return hasSelected || hasText || hasMatch;
     }).length;
 
+    const oneAtATime = assessment.one_question_at_a_time;
+    const safeIdx = questions.length > 0 ? Math.min(currentQuestionIdx, questions.length - 1) : 0;
+    const displayQuestions = oneAtATime && questions.length > 0 ? [questions[safeIdx]] : questions;
+
     return (
+      <SecureExamShell
+        tracker={trackerRef.current}
+        requireFullscreen={assessment.require_fullscreen}
+        blockTabSwitch={assessment.security_mode !== 'standard'}
+        blockCopyPaste={assessment.block_copy_paste}
+        blockRightClick={assessment.block_right_click}
+        blockDevtools={assessment.detect_devtools}
+        showWarnings={true}
+        onViolationWarning={msg => { setViolationBanner(msg); setTimeout(() => setViolationBanner(null), 6000); }}
+        onFullscreenExit={() => trackerRef.current?.record('fullscreen_exit')}
+      >
       <div className="min-h-screen bg-gray-50">
+
+        {/* ── Violation warning banner ─────────────────────────────────── */}
+        {violationBanner && (
+          <div className="fixed top-0 inset-x-0 z-40 bg-amber-500 text-white text-sm font-semibold px-4 py-2.5 flex items-center justify-between shadow-lg">
+            <span>⚠ {violationBanner}</span>
+            <button onClick={() => setViolationBanner(null)} className="text-white/70 hover:text-white text-lg leading-none ml-4">✕</button>
+          </div>
+        )}
+
+        {/* ── Webcam proctoring (minimized corner) ─────────────────────── */}
+        {assessment.require_webcam && webcamStream && sessionId && userId && attemptId && (
+          <WebcamProctor
+            sessionId={sessionId}
+            attemptId={attemptId}
+            studentId={userId}
+            stream={webcamStream}
+            tracker={trackerRef.current!}
+            snapshotInterval={assessment.snapshot_interval_seconds}
+            faceDetection={assessment.require_webcam}
+            minimized
+          />
+        )}
 
         {/* ── Time-expired overlay ─────────────────────────────────────── */}
         {timeExpired && (
@@ -796,14 +998,15 @@ export default function AssessmentTakingPage() {
           )}
 
           {/* Structured questions */}
-          {questions.map((q, idx) => {
+          {displayQuestions.map((q) => {
+            const globalIdx = questions.indexOf(q);
             const ans = answers.get(q.id) ?? { selectedOptions: [] as string[], textAnswer: '', matchAnswers: {} as Record<string, string> };
             return (
               <div key={q.id} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                 {/* Header */}
                 <div className="flex items-start gap-3 px-6 py-4 border-b border-gray-100">
                   <span className="flex-shrink-0 w-7 h-7 rounded-full bg-[#4c1d95] text-white text-xs font-bold flex items-center justify-center">
-                    {idx + 1}
+                    {globalIdx + 1}
                   </span>
                   <div className="flex-1">
                     <div className="prose prose-sm max-w-none text-gray-900 font-medium"
@@ -1030,8 +1233,40 @@ export default function AssessmentTakingPage() {
             );
           })}
 
-          {/* Bottom submit */}
-          {!timeExpired && (
+          {/* One-at-a-time navigation */}
+          {oneAtATime && !timeExpired && (
+            <div className="flex items-center justify-between pt-2 pb-2">
+              <button
+                disabled={currentQuestionIdx === 0 || assessment.prevent_backtracking}
+                onClick={() => setCurrentQuestionIdx(i => Math.max(0, i - 1))}
+                className="px-6 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ← Previous
+              </button>
+              <span className="text-sm text-gray-500 font-medium">
+                Question {currentQuestionIdx + 1} of {questions.length}
+              </span>
+              {currentQuestionIdx < questions.length - 1 ? (
+                <button
+                  onClick={() => setCurrentQuestionIdx(i => Math.min(questions.length - 1, i + 1))}
+                  className="px-6 py-2.5 rounded-xl bg-[#4c1d95] text-white text-sm font-semibold hover:opacity-90"
+                >
+                  Next →
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleSubmit(false)}
+                  disabled={submitting}
+                  className="px-6 py-2.5 rounded-xl bg-green-600 text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                >
+                  {submitting ? 'Submitting…' : 'Submit →'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Bottom submit (all-at-once mode) */}
+          {!timeExpired && !oneAtATime && (
             <div className="flex justify-center pt-4 pb-8">
               <button
                 onClick={() => handleSubmit(false)}
@@ -1044,6 +1279,7 @@ export default function AssessmentTakingPage() {
           )}
         </div>
       </div>
+      </SecureExamShell>
     );
   }
 

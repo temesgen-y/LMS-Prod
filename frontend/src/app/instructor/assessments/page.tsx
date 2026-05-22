@@ -35,6 +35,47 @@ const initialForm = {
   totalMarks: '100', timeLimitMins: '', maxAttempts: '1',
   shuffleQuestions: false, shuffleOptions: false, showResult: true, showAnswers: false,
   availableFrom: '', availableUntil: '', status: 'draft',
+  // Security settings
+  securityMode: 'standard',
+  requireFullscreen: false, blockCopyPaste: true, blockKeyboardShortcuts: true,
+  blockRightClick: true, blockTextSelection: true, detectDevtools: true,
+  detectScreenShare: false, detectExternalDisplay: false, detectRemoteSoftware: false,
+  maxTabSwitches: '3', maxFullscreenExits: '3', maxRiskScore: '30',
+  requireWebcam: false, enableAudioMonitoring: false, snapshotIntervalSeconds: '30',
+  requireIdentityVerification: false,
+  oneQuestionAtATime: false, preventBacktracking: false,
+  questionPoolSize: '', perQuestionTimeLimit: '',
+  gracePeriodSeconds: '30', lateStartWindowMinutes: '15', disconnectTimeoutSeconds: '120',
+};
+
+const SECURITY_PRESETS: Record<string, Partial<typeof initialForm>> = {
+  standard: {
+    securityMode: 'standard', requireFullscreen: false,
+    blockCopyPaste: true, blockKeyboardShortcuts: true, blockRightClick: true,
+    blockTextSelection: true, detectDevtools: true, detectScreenShare: false,
+    detectExternalDisplay: false, detectRemoteSoftware: false,
+    maxTabSwitches: '3', maxFullscreenExits: '3', maxRiskScore: '30',
+    requireWebcam: false, enableAudioMonitoring: false, snapshotIntervalSeconds: '30',
+    requireIdentityVerification: false, oneQuestionAtATime: false, preventBacktracking: false,
+  },
+  lockdown: {
+    securityMode: 'lockdown', requireFullscreen: true,
+    blockCopyPaste: true, blockKeyboardShortcuts: true, blockRightClick: true,
+    blockTextSelection: true, detectDevtools: true, detectScreenShare: true,
+    detectExternalDisplay: true, detectRemoteSoftware: false,
+    maxTabSwitches: '2', maxFullscreenExits: '2', maxRiskScore: '20',
+    requireWebcam: false, enableAudioMonitoring: false, snapshotIntervalSeconds: '60',
+    requireIdentityVerification: false, oneQuestionAtATime: true, preventBacktracking: false,
+  },
+  proctored: {
+    securityMode: 'proctored', requireFullscreen: true,
+    blockCopyPaste: true, blockKeyboardShortcuts: true, blockRightClick: true,
+    blockTextSelection: true, detectDevtools: true, detectScreenShare: true,
+    detectExternalDisplay: true, detectRemoteSoftware: true,
+    maxTabSwitches: '1', maxFullscreenExits: '1', maxRiskScore: '15',
+    requireWebcam: true, enableAudioMonitoring: true, snapshotIntervalSeconds: '30',
+    requireIdentityVerification: true, oneQuestionAtATime: true, preventBacktracking: true,
+  },
 };
 
 async function notifyEnrolledStudents(supabase: any, offeringId: string, type: string, title: string, body: string, link?: string) {
@@ -237,6 +278,30 @@ export default function InstructorAssessmentsPage() {
       availableFrom: a.availableFrom ? new Date(a.availableFrom).toISOString().slice(0, 16) : '',
       availableUntil: a.availableUntil ? new Date(a.availableUntil).toISOString().slice(0, 16) : '',
       status: a.status,
+      securityMode: (a as any).securityMode ?? 'standard',
+      requireFullscreen: (a as any).requireFullscreen ?? false,
+      blockCopyPaste: (a as any).blockCopyPaste ?? true,
+      blockKeyboardShortcuts: (a as any).blockKeyboardShortcuts ?? true,
+      blockRightClick: (a as any).blockRightClick ?? true,
+      blockTextSelection: (a as any).blockTextSelection ?? true,
+      detectDevtools: (a as any).detectDevtools ?? true,
+      detectScreenShare: (a as any).detectScreenShare ?? false,
+      detectExternalDisplay: (a as any).detectExternalDisplay ?? false,
+      detectRemoteSoftware: (a as any).detectRemoteSoftware ?? false,
+      maxTabSwitches: String((a as any).maxTabSwitches ?? 3),
+      maxFullscreenExits: String((a as any).maxFullscreenExits ?? 3),
+      maxRiskScore: String((a as any).maxRiskScore ?? 30),
+      requireWebcam: (a as any).requireWebcam ?? false,
+      enableAudioMonitoring: (a as any).enableAudioMonitoring ?? false,
+      snapshotIntervalSeconds: String((a as any).snapshotIntervalSeconds ?? 30),
+      requireIdentityVerification: (a as any).requireIdentityVerification ?? false,
+      oneQuestionAtATime: (a as any).oneQuestionAtATime ?? false,
+      preventBacktracking: (a as any).preventBacktracking ?? false,
+      questionPoolSize: (a as any).questionPoolSize ? String((a as any).questionPoolSize) : '',
+      perQuestionTimeLimit: (a as any).perQuestionTimeLimit ? String((a as any).perQuestionTimeLimit) : '',
+      gracePeriodSeconds: String((a as any).gracePeriodSeconds ?? 30),
+      lateStartWindowMinutes: String((a as any).lateStartWindowMinutes ?? 15),
+      disconnectTimeoutSeconds: String((a as any).disconnectTimeoutSeconds ?? 120),
     });
     setSubmitError('');
     setModalOpen(true);
@@ -278,7 +343,8 @@ export default function InstructorAssessmentsPage() {
     setIsSubmitting(true);
     const userId  = await getCurrentUserId();
     const supabase = createClient();
-    const payload: any = {
+    // Base payload — always works (columns present since initial schema)
+    const basePayload: any = {
       offering_id: form.offeringId, created_by: userId, title: form.title.trim(), type: form.type,
       instructions: form.instructions || null, total_marks: totalMarks,
       pass_mark: Math.round(totalMarks * 0.5), time_limit_mins: timeLimitMins,
@@ -288,15 +354,50 @@ export default function InstructorAssessmentsPage() {
       available_until: form.availableUntil ? new Date(form.availableUntil).toISOString() : null,
       weight_pct: 0, status: form.status,
     };
+
+    // Security payload — requires migration 20260521000002_exam_security.sql
+    // Applied separately so the base save never fails if migration is pending.
+    const securityPayload: any = {
+      security_mode:                  form.securityMode,
+      require_fullscreen:             form.requireFullscreen,
+      block_copy_paste:               form.blockCopyPaste,
+      block_keyboard_shortcuts:       form.blockKeyboardShortcuts,
+      block_right_click:              form.blockRightClick,
+      block_text_selection:           form.blockTextSelection,
+      detect_devtools:                form.detectDevtools,
+      detect_screen_share:            form.detectScreenShare,
+      detect_external_display:        form.detectExternalDisplay,
+      detect_remote_software:         form.detectRemoteSoftware,
+      max_tab_switches:               parseInt(form.maxTabSwitches, 10) || 3,
+      max_fullscreen_exits:           parseInt(form.maxFullscreenExits, 10) || 3,
+      max_risk_score:                 parseInt(form.maxRiskScore, 10) || 30,
+      require_webcam:                 form.requireWebcam,
+      enable_audio_monitoring:        form.enableAudioMonitoring,
+      snapshot_interval_seconds:      parseInt(form.snapshotIntervalSeconds, 10) || 30,
+      require_identity_verification:  form.requireIdentityVerification,
+      one_question_at_a_time:         form.oneQuestionAtATime,
+      prevent_backtracking:           form.preventBacktracking,
+      question_pool_size:             form.questionPoolSize ? parseInt(form.questionPoolSize, 10) : null,
+      per_question_time_limit:        form.perQuestionTimeLimit ? parseInt(form.perQuestionTimeLimit, 10) : null,
+      grace_period_seconds:           parseInt(form.gracePeriodSeconds, 10) || 30,
+      late_start_window_minutes:      parseInt(form.lateStartWindowMinutes, 10) || 15,
+      disconnect_timeout_seconds:     parseInt(form.disconnectTimeoutSeconds, 10) || 120,
+    };
+
     let error; let prevStatus = ''; let assessmentId: string | null = editingId;
     if (editingId) {
       const existing = assessments.find(a => a.id === editingId); prevStatus = existing?.status ?? '';
-      ({ error } = await supabase.from('assessments').update(payload).eq('id', editingId));
+      ({ error } = await supabase.from('assessments').update(basePayload).eq('id', editingId));
     } else {
-      const { data: ins, error: insErr } = await supabase.from('assessments').insert(payload).select('id').single();
+      const { data: ins, error: insErr } = await supabase.from('assessments').insert(basePayload).select('id').single();
       error = insErr; assessmentId = ins?.id ?? null;
     }
     if (error) { setSubmitError(error.message); setIsSubmitting(false); return; }
+
+    // Apply security settings — silent if migration not yet applied
+    if (assessmentId) {
+      await supabase.from('assessments').update(securityPayload).eq('id', assessmentId);
+    }
     if (form.status === 'published' && prevStatus !== 'published' && assessmentId) {
       await notifyEnrolledStudents(supabase, form.offeringId, 'exam_published',
         `New ${TYPE_LABELS[form.type] ?? form.type}: ${form.title.trim()}`,
@@ -514,6 +615,166 @@ export default function InstructorAssessmentsPage() {
                     Students will be notified when this assessment is published.
                   </div>
                 )}
+
+                {/* ── Security Settings ─────────────────────────────────── */}
+                <div className="border border-gray-200 rounded-xl overflow-hidden">
+                  <button type="button"
+                    onClick={() => setForm((f: any) => ({ ...f, _secOpen: !f._secOpen }))}
+                    className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 text-sm font-semibold text-gray-700 transition-colors">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-4 h-4 text-[#4c1d95]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                      Security & Proctoring
+                      {form.securityMode !== 'standard' && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${form.securityMode === 'proctored' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {form.securityMode === 'proctored' ? 'PROCTORED' : 'LOCKDOWN'}
+                        </span>
+                      )}
+                    </div>
+                    <svg className={`w-4 h-4 text-gray-400 transition-transform ${form._secOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {form._secOpen && (
+                    <div className="px-4 py-4 space-y-5">
+                      {/* Mode presets */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Security Mode</p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {([
+                            { key: 'standard',  label: 'Standard',  desc: 'Timer only',              color: 'border-green-300 bg-green-50 text-green-700' },
+                            { key: 'lockdown',  label: 'Lockdown',  desc: 'Fullscreen + blocks',     color: 'border-amber-300 bg-amber-50 text-amber-700' },
+                            { key: 'proctored', label: 'Proctored', desc: 'Webcam + ID + full lock', color: 'border-red-300 bg-red-50 text-red-700' },
+                          ] as const).map(({ key, label, desc, color }) => (
+                            <button key={key} type="button"
+                              onClick={() => setForm((f: any) => ({ ...f, ...SECURITY_PRESETS[key], _secOpen: true }))}
+                              className={`rounded-xl border-2 p-3 text-center transition-all ${form.securityMode === key ? color + ' border-2' : 'border-gray-200 hover:border-gray-300 bg-white text-gray-600'}`}>
+                              <p className="text-xs font-bold">{label}</p>
+                              <p className="text-[10px] mt-0.5 opacity-70">{desc}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Browser Security */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Browser Security</p>
+                        <div className="space-y-2">
+                          {([
+                            ['requireFullscreen',       'Require fullscreen'],
+                            ['blockCopyPaste',          'Block copy & paste'],
+                            ['blockKeyboardShortcuts',  'Block keyboard shortcuts'],
+                            ['blockRightClick',         'Block right-click'],
+                            ['blockTextSelection',      'Block text selection'],
+                            ['detectDevtools',          'Detect developer tools'],
+                            ['detectScreenShare',       'Detect screen sharing'],
+                            ['detectExternalDisplay',   'Detect external display'],
+                            ['detectRemoteSoftware',    'Detect remote software (TeamViewer, AnyDesk)'],
+                          ] as [string, string][]).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 cursor-pointer select-none">
+                              <input type="checkbox" checked={form[key] ?? false}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.checked }))}
+                                className="w-4 h-4 rounded border-gray-300 accent-[#4c1d95]" />
+                              <span className="text-sm text-gray-700">{label}</span>
+                            </label>
+                          ))}
+                          <div className="grid grid-cols-3 gap-3 mt-2">
+                            {([
+                              ['maxTabSwitches',    'Max tab switches'],
+                              ['maxFullscreenExits','Max fullscreen exits'],
+                              ['maxRiskScore',      'Auto-submit risk score'],
+                            ] as [string, string][]).map(([key, label]) => (
+                              <div key={key}>
+                                <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{label}</label>
+                                <input type="number" min={1} value={form[key] ?? ''}
+                                  onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.value }))}
+                                  className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Proctoring */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Proctoring</p>
+                        <div className="space-y-2">
+                          {([
+                            ['requireWebcam',               'Require webcam'],
+                            ['enableAudioMonitoring',        'Enable audio monitoring'],
+                            ['requireIdentityVerification',  'Require identity verification'],
+                          ] as [string, string][]).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 cursor-pointer select-none">
+                              <input type="checkbox" checked={form[key] ?? false}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.checked }))}
+                                className="w-4 h-4 rounded border-gray-300 accent-[#4c1d95]" />
+                              <span className="text-sm text-gray-700">{label}</span>
+                            </label>
+                          ))}
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Snapshot interval (seconds)</label>
+                            <input type="number" min={10} value={form.snapshotIntervalSeconds ?? '30'}
+                              onChange={e => setForm((f: any) => ({ ...f, snapshotIntervalSeconds: e.target.value }))}
+                              className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Question Delivery */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Question Delivery</p>
+                        <div className="space-y-2">
+                          {([
+                            ['oneQuestionAtATime', 'One question at a time'],
+                            ['preventBacktracking','Prevent backtracking'],
+                          ] as [string, string][]).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 cursor-pointer select-none">
+                              <input type="checkbox" checked={form[key] ?? false}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.checked }))}
+                                className="w-4 h-4 rounded border-gray-300 accent-[#4c1d95]" />
+                              <span className="text-sm text-gray-700">{label}</span>
+                            </label>
+                          ))}
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Question pool size</label>
+                              <input type="number" min={1} value={form.questionPoolSize ?? ''} placeholder="All"
+                                onChange={e => setForm((f: any) => ({ ...f, questionPoolSize: e.target.value }))}
+                                className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20" />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Per-question time (sec)</label>
+                              <input type="number" min={10} value={form.perQuestionTimeLimit ?? ''} placeholder="No limit"
+                                onChange={e => setForm((f: any) => ({ ...f, perQuestionTimeLimit: e.target.value }))}
+                                className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Timing & Thresholds */}
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Timing & Resilience</p>
+                        <div className="grid grid-cols-3 gap-3">
+                          {([
+                            ['gracePeriodSeconds',        'Grace period (sec)'],
+                            ['lateStartWindowMinutes',    'Late start window (min)'],
+                            ['disconnectTimeoutSeconds',  'Disconnect timeout (sec)'],
+                          ] as [string, string][]).map(([key, label]) => (
+                            <div key={key}>
+                              <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{label}</label>
+                              <input type="number" min={0} value={form[key] ?? ''}
+                                onChange={e => setForm((f: any) => ({ ...f, [key]: e.target.value }))}
+                                className="w-full px-2 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20" />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* ── Footer ─────────────────────────────────────────────── */}
@@ -641,6 +902,14 @@ export default function InstructorAssessmentsPage() {
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                               Grade
                             </Link>
+                            {(a as any).securityMode && (a as any).securityMode !== 'standard' && (
+                              <Link href={`/instructor/assessments/${a.id}/monitoring`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-medium hover:bg-red-100"
+                                title="Live monitoring">
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.361a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                Monitor
+                              </Link>
+                            )}
                             <button type="button" onClick={() => openEditModal(a)} className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900" title="Edit">
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             </button>

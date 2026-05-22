@@ -41,7 +41,7 @@ export default function InstructorQuestionOptionsPage() {
     const { data: aIds } = await supabase.from('assessments').select('id').in('offering_id', offeringIds);
     const assessmentIds = (aIds ?? []).map((r: any) => r.id);
     if (!assessmentIds.length) return;
-    const { data } = await supabase.from('questions').select('id, body, type').in('assessment_id', assessmentIds).in('type', ['mcq', 'true_false']).order('body');
+    const { data } = await supabase.from('questions').select('id, body, type').in('assessment_id', assessmentIds).in('type', ['mcq', 'true_false', 'multiple_select']).order('body');
     if (data) setQuestions(data.map((q: any) => ({ id: q.id, label: q.body.length > 80 ? q.body.slice(0, 80) + '…' : q.body })));
   }, [getCurrentUserId]);
 
@@ -105,7 +105,7 @@ export default function InstructorQuestionOptionsPage() {
       <div className="flex flex-wrap gap-3 justify-between items-center">
         <div className="flex flex-wrap gap-3 flex-1">
           <select value={filterQuestion} onChange={e => { setFilterQuestion(e.target.value); setPage(1); }} className="flex-1 min-w-[200px] max-w-sm px-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20">
-            <option value="">All Questions (MCQ/T-F)</option>{questions.map(q => <option key={q.id} value={q.id}>{q.label}</option>)}
+            <option value="">All Questions (MCQ / T-F / Multi-Select)</option>{questions.map(q => <option key={q.id} value={q.id}>{q.label}</option>)}
           </select>
           <div className="relative flex-1 min-w-[180px] max-w-sm">
             <input type="search" placeholder="Search options..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/20" />
