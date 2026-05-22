@@ -24,6 +24,7 @@ export interface ExamSecuritySettings {
   requireWebcam:          boolean;
   requireIdentityCheck:   boolean;
   faceDetectionEnabled:   boolean;
+  enableAudioMonitoring:  boolean;
   showViolationWarnings:  boolean;
 }
 
@@ -32,7 +33,7 @@ interface Props {
   timeLimitMins:    number | null;
   totalMarks:       number;
   security:         ExamSecuritySettings;
-  onReady:          (webcamStream: MediaStream | null) => void;
+  onReady:          (webcamStream: MediaStream | null, identityPhoto: string | null) => void;
   onCancel:         () => void;
 }
 
@@ -86,7 +87,8 @@ export default function PreExamCheck({ assessmentTitle, timeLimitMins, totalMark
     let stream: MediaStream | null = null;
     if (security.requireWebcam) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: security.faceDetectionEnabled });
+        const needsAudio = security.faceDetectionEnabled || security.enableAudioMonitoring;
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: needsAudio });
         setWebcamStream(stream);
         updateCheck('webcam', 'pass', 'Camera ready');
         if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); }
@@ -138,7 +140,7 @@ export default function PreExamCheck({ assessmentTitle, timeLimitMins, totalMark
     if (security.requireFullscreen && document.documentElement.requestFullscreen) {
       document.documentElement.requestFullscreen().catch(() => {});
     }
-    onReady(webcamStream);
+    onReady(webcamStream, identityPhoto);
   }
 
   const StatusIcon = ({ status }: { status: CheckStatus }) => {
@@ -247,8 +249,9 @@ export default function PreExamCheck({ assessmentTitle, timeLimitMins, totalMark
                 {security.detectScreenShare     && <Rule icon="🖥" text="Screen sharing detection is active." />}
                 {security.detectExternalDisplay && <Rule icon="📺" text="External display detection is active. Disconnect any secondary monitors." />}
                 {security.detectRemoteSoftware  && <Rule icon="🔒" text="Remote control software detection is active." />}
-                {security.requireWebcam         && <Rule icon="📷" text="Your webcam will be active throughout the exam." />}
-                {security.faceDetectionEnabled  && <Rule icon="👤" text="Face detection is active — ensure your face is visible." />}
+                {security.requireWebcam           && <Rule icon="📷" text="Your webcam will be active throughout the exam." />}
+                {security.faceDetectionEnabled   && <Rule icon="👤" text="Face detection is active — ensure your face is visible." />}
+                {security.enableAudioMonitoring  && <Rule icon="🎤" text="Audio monitoring is active — unexpected voices will be flagged." />}
                 <Rule icon="⏰" text="Your exam will be automatically submitted when time expires." />
                 <Rule icon="⚠️" text="Violations are logged and reported to your instructor." />
               </div>

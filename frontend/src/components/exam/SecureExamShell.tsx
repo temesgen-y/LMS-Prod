@@ -201,11 +201,33 @@ export default function SecureExamShell({
         }
       }
       if (detectRemoteSoftware) {
-        const isWebDriver = !!(navigator as any).webdriver;
-        const hasPhantom  = !!(window as any).callPhantom || !!(window as any)._phantom;
-        if (isWebDriver || hasPhantom) {
-          tracker?.record('remote_software_detected', { isWebDriver, hasPhantom });
-          warn('Remote control software has been detected.');
+        // Automation / headless browser fingerprints
+        const isWebDriver  = !!(navigator as any).webdriver;
+        const hasPhantom   = !!(window as any).callPhantom || !!(window as any)._phantom;
+        const isHeadless   = /HeadlessChrome|HeadlessFirefox/.test(navigator.userAgent);
+        const hasSelenium  = !!(document as any).__selenium_unwrapped
+                          || !!(window as any).__selenium_evaluate
+                          || !!(window as any)._selenium;
+        const hasNightmare = !!(window as any).__nightmare;
+        const hasPlaywright = !!(window as any).__pw_manual || !!(window as any).__playwrightBinding;
+        const hasCypress   = !!(window as any).Cypress;
+        // Virtual / remote display heuristic: remote desktop tools (TeamViewer,
+        // AnyDesk, Chrome Remote Desktop) often expose a 1x DPR virtual display
+        // with exact legacy resolutions while the OS should have HiDPI.
+        const dpr = window.devicePixelRatio ?? 1;
+        const suspiciousDisplay = dpr === 1 && window.screen.colorDepth < 24
+          && [
+            [800, 600], [1024, 768], [1280, 800], [1280, 720],
+          ].some(([w, h]) => window.screen.width === w && window.screen.height === h);
+
+        const detected = isWebDriver || hasPhantom || isHeadless || hasSelenium
+                      || hasNightmare || hasPlaywright || hasCypress || suspiciousDisplay;
+        if (detected) {
+          tracker?.record('remote_software_detected', {
+            isWebDriver, hasPhantom, isHeadless, hasSelenium,
+            hasNightmare, hasPlaywright, hasCypress, suspiciousDisplay,
+          });
+          warn('Remote control or automation software has been detected. Please close it to continue.');
         }
       }
     };

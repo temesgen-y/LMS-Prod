@@ -124,6 +124,15 @@ function formatFileSize(sizeKb: number): string {
   return `${(sizeKb / 1024).toFixed(1)} MB`;
 }
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, b64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)![1];
+  const bytes = atob(b64);
+  const arr = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AssessmentTakingPage() {
@@ -461,7 +470,7 @@ export default function AssessmentTakingPage() {
     await doStartAttempt(null);
   }
 
-  async function doStartAttempt(stream: MediaStream | null) {
+  async function doStartAttempt(stream: MediaStream | null, identityPhoto: string | null = null) {
     if (!userId || !enrollmentId || !assessment) return;
     const supabase = createClient();
     const { data: att, error: err } = await supabase
@@ -527,6 +536,25 @@ export default function AssessmentTakingPage() {
         const security = new SessionSecurity({ sessionId: sid, attemptId: newAttemptId });
         sessionRef.current = security;
         security.start();
+
+        // Save identity verification photo if captured during pre-check
+        if (identityPhoto && assessment.require_identity_verification) {
+          try {
+            const blob = dataUrlToBlob(identityPhoto);
+            const path = `identity-checks/${newAttemptId}/selfie.jpg`;
+            const { error: upErr } = await supabase.storage
+              .from('lms-uploads').upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+            if (!upErr) {
+              await supabase.from('identity_verifications').insert({
+                session_id:    sid,
+                student_id:    userId,
+                assessment_id: assessmentId,
+                selfie_path:   path,
+                status:        'pending',
+              });
+            }
+          } catch { /* best-effort */ }
+        }
       }
     } catch { /* best-effort — don't block exam start */ }
 
@@ -765,6 +793,7 @@ export default function AssessmentTakingPage() {
       requireWebcam:         assessment.require_webcam,
       requireIdentityCheck:  assessment.require_identity_verification,
       faceDetectionEnabled:  assessment.require_webcam,
+      enableAudioMonitoring: assessment.enable_audio_monitoring,
       showViolationWarnings: true,
     };
     return (
@@ -773,7 +802,7 @@ export default function AssessmentTakingPage() {
         timeLimitMins={assessment.time_limit_mins}
         totalMarks={assessment.total_marks}
         security={sec}
-        onReady={stream => doStartAttempt(stream)}
+        onReady={(stream, photo) => doStartAttempt(stream, photo)}
         onCancel={() => setPageState('intro')}
       />
     );
@@ -1050,6 +1079,7 @@ export default function AssessmentTakingPage() {
             tracker={trackerRef.current!}
             snapshotInterval={assessment.snapshot_interval_seconds}
             faceDetection={assessment.require_webcam}
+            audioMonitoring={assessment.enable_audio_monitoring}
             minimized
           />
         )}
