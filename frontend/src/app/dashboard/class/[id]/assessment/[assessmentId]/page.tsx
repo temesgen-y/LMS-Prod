@@ -1052,6 +1052,10 @@ export default function AssessmentTakingPage() {
         blockRightClick={assessment.block_right_click}
         blockTextSelection={assessment.block_text_selection}
         blockDevtools={assessment.detect_devtools}
+        blockPrint={assessment.block_keyboard_shortcuts || assessment.security_mode !== 'standard'}
+        blockScreenshots={assessment.security_mode !== 'standard'}
+        blockScreenRecording={assessment.detect_screen_share}
+        watermarkText={userId ?? undefined}
         detectScreenShare={assessment.detect_screen_share}
         detectExternalDisplay={assessment.detect_external_display}
         detectRemoteSoftware={assessment.detect_remote_software}

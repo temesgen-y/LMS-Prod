@@ -22,19 +22,26 @@ export interface ViolationTrackerConfig {
 }
 
 const RISK_POINTS: Record<string, { severity: Severity; points: number }> = {
-  tab_switch:          { severity: 'medium',   points: 15 },
-  window_blur:         { severity: 'low',      points: 5  },
-  fullscreen_exit:     { severity: 'medium',   points: 20 },
-  copy_attempt:        { severity: 'high',     points: 25 },
-  paste_attempt:       { severity: 'high',     points: 25 },
-  right_click:         { severity: 'low',      points: 5  },
-  devtools_open:       { severity: 'critical', points: 40 },
-  no_face_detected:    { severity: 'high',     points: 30 },
-  multiple_faces:      { severity: 'critical', points: 35 },
-  print_attempt:       { severity: 'high',     points: 30 },
-  keyboard_shortcut:   { severity: 'medium',   points: 10 },
-  visibility_hidden:   { severity: 'medium',   points: 15 },
-  identity_mismatch:   { severity: 'critical', points: 50 },
+  tab_switch:                { severity: 'medium',   points: 15 },
+  window_blur:               { severity: 'low',      points: 5  },
+  fullscreen_exit:           { severity: 'medium',   points: 20 },
+  copy_attempt:              { severity: 'high',     points: 25 },
+  paste_attempt:             { severity: 'high',     points: 25 },
+  right_click:               { severity: 'low',      points: 5  },
+  devtools_open:             { severity: 'critical', points: 40 },
+  no_face_detected:          { severity: 'high',     points: 30 },
+  multiple_faces:            { severity: 'critical', points: 35 },
+  print_attempt:             { severity: 'high',     points: 30 },
+  keyboard_shortcut:         { severity: 'medium',   points: 10 },
+  visibility_hidden:         { severity: 'medium',   points: 15 },
+  identity_mismatch:         { severity: 'critical', points: 50 },
+  // New violation types
+  screenshot_attempt:        { severity: 'high',     points: 30 },
+  screen_recording_detected: { severity: 'critical', points: 45 },
+  clipboard_access:          { severity: 'medium',   points: 15 },
+  drag_attempt:              { severity: 'low',      points: 5  },
+  new_tab_attempt:           { severity: 'medium',   points: 10 },
+  window_close_attempt:      { severity: 'medium',   points: 10 },
 };
 
 export class ViolationTracker {

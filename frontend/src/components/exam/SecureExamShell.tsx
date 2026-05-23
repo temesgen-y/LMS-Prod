@@ -13,9 +13,13 @@ interface Props {
   blockRightClick:        boolean;
   blockTextSelection:     boolean;
   blockDevtools:          boolean;
+  blockPrint:             boolean;
+  blockScreenshots:       boolean;
+  blockScreenRecording:   boolean;
   detectScreenShare:      boolean;
   detectExternalDisplay:  boolean;
   detectRemoteSoftware:   boolean;
+  watermarkText?:         string;
   showWarnings:           boolean;
   onViolationWarning:     (msg: string) => void;
   onFullscreenExit:       () => void;
@@ -31,16 +35,23 @@ export default function SecureExamShell({
   blockRightClick,
   blockTextSelection,
   blockDevtools,
+  blockPrint,
+  blockScreenshots,
+  blockScreenRecording,
   detectScreenShare,
   detectExternalDisplay,
   detectRemoteSoftware,
+  watermarkText,
   showWarnings,
   onViolationWarning,
   onFullscreenExit,
   children,
 }: Props) {
   const periodicRef   = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const printStyleRef = useRef<HTMLStyleElement | null>(null);
+  const [mounted, setMounted]           = useState(false);
+  const [windowFocused, setWindowFocused] = useState(true);
+
   const warn = useCallback((msg: string) => { if (showWarnings) onViolationWarning(msg); }, [showWarnings, onViolationWarning]);
 
   // Portal needs document — only available after mount
@@ -63,6 +74,19 @@ export default function SecureExamShell({
       window.removeEventListener('blur', onBlur);
     };
   }, [blockTabSwitch, tracker, warn]);
+
+  // ── Window focus tracking (for screenshot blur overlay) ───────────────────
+  useEffect(() => {
+    if (!blockScreenshots) return;
+    const onFocus = () => setWindowFocused(true);
+    const onBlur  = () => setWindowFocused(false);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur',  onBlur);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur',  onBlur);
+    };
+  }, [blockScreenshots]);
 
   // ── Fullscreen enforcement (re-enter on exit) ──────────────────────────────
   useEffect(() => {
@@ -100,11 +124,87 @@ export default function SecureExamShell({
     };
   }, [blockCopyPaste, tracker, warn]);
 
+  // ── Navigator clipboard API override ──────────────────────────────────────
+  useEffect(() => {
+    if (!blockCopyPaste) return;
+    const origClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const noop = () => Promise.reject(new DOMException('NotAllowedError'));
+    try {
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { readText: noop, writeText: noop, read: noop, write: noop },
+        configurable: true,
+      });
+    } catch { /* ignore — browser may deny redefine */ }
+    const origExecCommand = document.execCommand.bind(document);
+    document.execCommand = (cmd: string, ...args: unknown[]) => {
+      if (['copy','cut','paste'].includes(cmd.toLowerCase())) {
+        tracker?.record('clipboard_access', { cmd });
+        return false;
+      }
+      return origExecCommand(cmd, ...(args as [boolean?, string?]));
+    };
+    return () => {
+      document.execCommand = origExecCommand;
+      if (origClipboard) {
+        try { Object.defineProperty(navigator, 'clipboard', origClipboard); } catch { /* ignore */ }
+      }
+    };
+  }, [blockCopyPaste, tracker]);
+
+  // ── Print blocking ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!blockPrint) return;
+    // Inject @media print CSS to hide all content
+    const style = document.createElement('style');
+    style.textContent = '@media print { body * { visibility: hidden !important; display: none !important; } }';
+    document.head.appendChild(style);
+    printStyleRef.current = style;
+
+    // Override window.print
+    const origPrint = window.print.bind(window);
+    window.print = () => {
+      tracker?.record('print_attempt', { method: 'window.print' });
+      warn('Printing is not allowed during this exam.');
+    };
+
+    const onBeforePrint = () => {
+      tracker?.record('print_attempt', { method: 'beforeprint' });
+      warn('Printing is not allowed during this exam.');
+    };
+    window.addEventListener('beforeprint', onBeforePrint);
+
+    return () => {
+      window.print = origPrint;
+      window.removeEventListener('beforeprint', onBeforePrint);
+      if (printStyleRef.current) {
+        printStyleRef.current.remove();
+        printStyleRef.current = null;
+      }
+    };
+  }, [blockPrint, tracker, warn]);
+
+  // ── Screen recording / getDisplayMedia override ───────────────────────────
+  useEffect(() => {
+    if (!blockScreenRecording) return;
+    if (!navigator.mediaDevices) return;
+    const origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia?.bind(navigator.mediaDevices);
+    if (!origGetDisplayMedia) return;
+    navigator.mediaDevices.getDisplayMedia = async (opts?: DisplayMediaStreamOptions) => {
+      tracker?.record('screen_recording_detected', { opts: JSON.stringify(opts) });
+      warn('Screen recording and sharing are not allowed during this exam.');
+      throw new DOMException('Permission denied by exam security policy.', 'NotAllowedError');
+    };
+    return () => {
+      if (origGetDisplayMedia) {
+        navigator.mediaDevices.getDisplayMedia = origGetDisplayMedia;
+      }
+    };
+  }, [blockScreenRecording, tracker, warn]);
+
   // ── Text selection blocking ────────────────────────────────────────────────
   useEffect(() => {
     if (!blockTextSelection) return;
     const prevent = (e: Event) => {
-      // Allow selection inside answer inputs, textareas, and rich-text editors
       if ((e.target as HTMLElement).closest?.('input, textarea, [contenteditable]')) return;
       e.preventDefault();
     };
@@ -124,19 +224,56 @@ export default function SecureExamShell({
     return () => document.removeEventListener('contextmenu', onContextMenu);
   }, [blockRightClick, tracker, warn]);
 
-  // ── Keyboard shortcut blocking ─────────────────────────────────────────────
+  // ── Drag attempt detection ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!blockCopyPaste && !blockKeyboardShortcuts && !blockDevtools) return;
+    if (!blockTextSelection && !blockCopyPaste) return;
+    const onDragStart = (e: DragEvent) => {
+      e.preventDefault();
+      tracker?.record('drag_attempt');
+    };
+    document.addEventListener('dragstart', onDragStart);
+    return () => document.removeEventListener('dragstart', onDragStart);
+  }, [blockTextSelection, blockCopyPaste, tracker]);
+
+  // ── Keyboard shortcut blocking (incl. Print Screen & new tab) ─────────────
+  useEffect(() => {
+    if (!blockCopyPaste && !blockKeyboardShortcuts && !blockDevtools && !blockPrint && !blockScreenshots) return;
     const onKeyDown = (e: KeyboardEvent) => {
       const ctrl  = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const key   = e.key.toLowerCase();
+
+      // Screenshot keys
+      if (blockScreenshots) {
+        if (e.key === 'PrintScreen' || e.key === 'Snapshot') {
+          e.preventDefault();
+          tracker?.record('screenshot_attempt', { key: e.key });
+          warn('Screenshots are not allowed during this exam.');
+          // Immediately clear clipboard after PrtScn
+          try { navigator.clipboard.writeText(''); } catch { /* ignore */ }
+          return;
+        }
+        // Windows Snipping Tool shortcut (Win+Shift+S can't be fully blocked but we record it)
+        if (e.metaKey && shift && key === 's') {
+          tracker?.record('screenshot_attempt', { key: 'Win+Shift+S' });
+          warn('Screenshots are not allowed during this exam.');
+        }
+      }
 
       if (blockDevtools) {
         if (e.key === 'F12' || (ctrl && shift && ['i','j','c','k'].includes(key))) {
           e.preventDefault();
           tracker?.record('keyboard_shortcut', { key: e.key });
           warn('Developer tools are disabled during this exam.');
+          return;
+        }
+      }
+
+      if (blockPrint) {
+        if (ctrl && key === 'p') {
+          e.preventDefault();
+          tracker?.record('print_attempt', { key: 'Ctrl+P' });
+          warn('Printing is not allowed during this exam.');
           return;
         }
       }
@@ -148,19 +285,25 @@ export default function SecureExamShell({
           warn('Keyboard shortcuts are disabled during this exam.');
           return;
         }
-        if (ctrl && key === 'p') {
+        // Block new tab / new window
+        if (ctrl && key === 't') {
           e.preventDefault();
-          tracker?.record('print_attempt');
-          warn('Printing is not allowed during the exam.');
+          tracker?.record('new_tab_attempt', { key: 'Ctrl+T' });
           return;
         }
-        if (ctrl && ['u','s','f','t','l'].includes(key)) {
+        if (ctrl && key === 'n') {
+          e.preventDefault();
+          tracker?.record('new_tab_attempt', { key: 'Ctrl+N' });
+          return;
+        }
+        if (ctrl && ['u','s','f','l'].includes(key)) {
           e.preventDefault();
           tracker?.record('keyboard_shortcut', { key: e.key });
           return;
         }
         if ((e.altKey && e.key === 'F4') || (ctrl && key === 'w')) {
           e.preventDefault();
+          tracker?.record('window_close_attempt', { key: e.key });
           return;
         }
         if (e.key === 'F5' || (ctrl && key === 'r')) {
@@ -172,7 +315,19 @@ export default function SecureExamShell({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [blockCopyPaste, blockKeyboardShortcuts, blockDevtools, tracker, warn]);
+  }, [blockCopyPaste, blockKeyboardShortcuts, blockDevtools, blockPrint, blockScreenshots, tracker, warn]);
+
+  // ── beforeunload warning ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!blockTabSwitch) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = 'Leaving this page will end your exam. Are you sure?';
+      tracker?.record('window_close_attempt', { trigger: 'beforeunload' });
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [blockTabSwitch, tracker]);
 
   // ── DevTools detection (size heuristic) ───────────────────────────────────
   useEffect(() => {
@@ -194,26 +349,22 @@ export default function SecureExamShell({
     if (!detectScreenShare && !detectExternalDisplay && !detectRemoteSoftware) return;
     const check = () => {
       if (detectExternalDisplay) {
-        const extended = (window.screen as any).isExtended;
+        const extended = (window.screen as unknown as { isExtended?: boolean }).isExtended;
         if (extended === true) {
           tracker?.record('external_display', { extended });
           warn('An external display has been detected. Please disconnect it.');
         }
       }
       if (detectRemoteSoftware) {
-        // Automation / headless browser fingerprints
-        const isWebDriver  = !!(navigator as any).webdriver;
-        const hasPhantom   = !!(window as any).callPhantom || !!(window as any)._phantom;
+        const isWebDriver  = !!(navigator as unknown as Record<string, unknown>).webdriver;
+        const hasPhantom   = !!(window as unknown as Record<string, unknown>).callPhantom || !!(window as unknown as Record<string, unknown>)._phantom;
         const isHeadless   = /HeadlessChrome|HeadlessFirefox/.test(navigator.userAgent);
-        const hasSelenium  = !!(document as any).__selenium_unwrapped
-                          || !!(window as any).__selenium_evaluate
-                          || !!(window as any)._selenium;
-        const hasNightmare = !!(window as any).__nightmare;
-        const hasPlaywright = !!(window as any).__pw_manual || !!(window as any).__playwrightBinding;
-        const hasCypress   = !!(window as any).Cypress;
-        // Virtual / remote display heuristic: remote desktop tools (TeamViewer,
-        // AnyDesk, Chrome Remote Desktop) often expose a 1x DPR virtual display
-        // with exact legacy resolutions while the OS should have HiDPI.
+        const hasSelenium  = !!(document as unknown as Record<string, unknown>).__selenium_unwrapped
+                          || !!(window as unknown as Record<string, unknown>).__selenium_evaluate
+                          || !!(window as unknown as Record<string, unknown>)._selenium;
+        const hasNightmare = !!(window as unknown as Record<string, unknown>).__nightmare;
+        const hasPlaywright = !!(window as unknown as Record<string, unknown>).__pw_manual || !!(window as unknown as Record<string, unknown>).__playwrightBinding;
+        const hasCypress   = !!(window as unknown as Record<string, unknown>).Cypress;
         const dpr = window.devicePixelRatio ?? 1;
         const suspiciousDisplay = dpr === 1 && window.screen.colorDepth < 24
           && [
@@ -237,12 +388,49 @@ export default function SecureExamShell({
   }, [detectScreenShare, detectExternalDisplay, detectRemoteSoftware, tracker, warn]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  const noSelect = blockTextSelection || blockCopyPaste;
+  const noSelect  = blockTextSelection || blockCopyPaste;
   const wrapperCls = noSelect ? 'select-none' : '';
 
-  // Portal the exam to document.body whenever any meaningful security is active
-  // (fullscreen required OR tab-switch detection active). This bypasses the
-  // dashboard layout's stacking context so the sidebar/header are covered.
+  const blurActive = blockScreenshots && !windowFocused;
+
+  const blurOverlay = blurActive ? (
+    <div
+      className="fixed inset-0 z-[99998] backdrop-blur-xl bg-gray-900/70 flex items-center justify-center"
+      style={{ pointerEvents: 'none' }}
+    >
+      <div className="text-white text-center px-8 py-6 rounded-xl bg-gray-800/80 shadow-2xl select-none">
+        <div className="text-4xl mb-3">🔒</div>
+        <p className="text-lg font-semibold">Exam Paused</p>
+        <p className="text-sm text-gray-300 mt-1">Return to this window to continue your exam.</p>
+      </div>
+    </div>
+  ) : null;
+
+  const watermark = blockScreenshots && watermarkText ? (
+    <div
+      className="fixed inset-0 z-[99997] pointer-events-none overflow-hidden select-none"
+      aria-hidden="true"
+    >
+      {Array.from({ length: 8 }).map((_, row) =>
+        Array.from({ length: 5 }).map((_, col) => (
+          <div
+            key={`${row}-${col}`}
+            className="absolute whitespace-nowrap text-gray-400/20 font-mono text-xs font-bold"
+            style={{
+              top:       `${row * 14 + 5}%`,
+              left:      `${col * 22 - 5}%`,
+              transform: 'rotate(-35deg)',
+              fontSize:  '11px',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {watermarkText}
+          </div>
+        ))
+      )}
+    </div>
+  ) : null;
+
   const shouldPortal = (requireFullscreen || blockTabSwitch) && mounted;
   if (shouldPortal) {
     return createPortal(
@@ -250,6 +438,8 @@ export default function SecureExamShell({
         className={`fixed inset-0 z-[99999] bg-gray-50 overflow-y-auto ${wrapperCls}`}
         onDragStart={noSelect ? e => e.preventDefault() : undefined}
       >
+        {blurOverlay}
+        {watermark}
         {children}
       </div>,
       document.body
@@ -261,6 +451,8 @@ export default function SecureExamShell({
       className={wrapperCls || undefined}
       onDragStart={noSelect ? e => e.preventDefault() : undefined}
     >
+      {blurOverlay}
+      {watermark}
       {children}
     </div>
   );
