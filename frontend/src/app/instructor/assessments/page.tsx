@@ -496,6 +496,7 @@ export default function InstructorAssessmentsPage() {
                       { label: 'Matching',          color: 'bg-pink-400/20 text-pink-200 border-pink-400/30' },
                       { label: 'Multiple Select',   color: 'bg-indigo-400/20 text-indigo-200 border-indigo-400/30' },
                       { label: 'Essay',             color: 'bg-purple-400/20 text-purple-200 border-purple-400/30' },
+                      { label: 'Numerical',         color: 'bg-cyan-400/20 text-cyan-200 border-cyan-400/30' },
                     ].map(({ label, color }) => (
                       <span key={label} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${color}`}>
                         {label}
