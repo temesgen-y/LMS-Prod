@@ -164,6 +164,9 @@ export default function AssessmentTakingPage() {
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
   const trackerRef  = useRef<ViolationTracker | null>(null);
   const sessionRef  = useRef<SessionSecurity | null>(null);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastSavedAt, setLastSavedAt]       = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // open-ended (assessment with no structured questions)
   const [openResponse, setOpenResponse] = useState('');
@@ -272,8 +275,22 @@ export default function AssessmentTakingPage() {
       if (inProgress) {
         const qs = await fetchQuestions(supabase, assessmentId);
         setQuestions(qs);
-        initAnswers(qs);
         setAttemptId(inProgress.id);
+
+        // Restore draft answers if present
+        const { data: draftRow } = await supabase
+          .from('assessment_attempts')
+          .select('draft_answers, last_saved_at')
+          .eq('id', inProgress.id)
+          .maybeSingle();
+        const savedDraft = (draftRow as any)?.draft_answers ?? {};
+        const m = new Map<string, Answer>();
+        qs.forEach(q => {
+          const d = savedDraft[q.id];
+          m.set(q.id, d ?? { selectedOptions: [], textAnswer: '', matchAnswers: {} });
+        });
+        setAnswers(m);
+        if ((draftRow as any)?.last_saved_at) setLastSavedAt(new Date((draftRow as any).last_saved_at));
 
         const actualStart = inProgress.started_at ? new Date(inProgress.started_at) : new Date();
         startedAtRef.current = actualStart;
@@ -442,6 +459,35 @@ export default function AssessmentTakingPage() {
       }),
     };
   }
+
+  // ── Auto-save draft answers every 30s ─────────────────────────────────────
+
+  useEffect(() => {
+    if (!attemptId || pageState !== 'taking') return;
+
+    const save = async () => {
+      setAutoSaveStatus('saving');
+      try {
+        const draft: Record<string, Answer> = {};
+        answers.forEach((v, k) => { draft[k] = v; });
+        const supabase = createClient();
+        const { error } = await supabase
+          .from('assessment_attempts')
+          .update({ draft_answers: draft, last_saved_at: new Date().toISOString() })
+          .eq('id', attemptId);
+        if (error) { setAutoSaveStatus('error'); return; }
+        setLastSavedAt(new Date());
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus('idle'), 2500);
+      } catch {
+        setAutoSaveStatus('error');
+      }
+    };
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(save, 30_000);
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  }, [answers, attemptId, pageState]);
 
   // ── Answer helpers ─────────────────────────────────────────────────────────
 
@@ -1072,6 +1118,40 @@ export default function AssessmentTakingPage() {
             <button onClick={() => setViolationBanner(null)} className="text-white/70 hover:text-white text-lg leading-none ml-4">✕</button>
           </div>
         )}
+
+        {/* ── Auto-save indicator ──────────────────────────────────────── */}
+        <div className="fixed bottom-4 right-4 z-20 pointer-events-none">
+          {autoSaveStatus === 'saving' && (
+            <div className="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 text-xs font-medium px-3 py-1.5 rounded-full shadow-md">
+              <svg className="w-3.5 h-3.5 animate-spin text-[#4c1d95]" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z"/>
+              </svg>
+              Saving draft…
+            </div>
+          )}
+          {autoSaveStatus === 'saved' && (
+            <div className="flex items-center gap-2 bg-white border border-green-200 text-green-700 text-xs font-medium px-3 py-1.5 rounded-full shadow-md">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+              </svg>
+              Draft saved
+            </div>
+          )}
+          {autoSaveStatus === 'error' && (
+            <div className="flex items-center gap-2 bg-white border border-red-200 text-red-600 text-xs font-medium px-3 py-1.5 rounded-full shadow-md">
+              ⚠ Could not save draft
+            </div>
+          )}
+          {autoSaveStatus === 'idle' && lastSavedAt && (
+            <div className="flex items-center gap-1.5 bg-white/80 border border-gray-100 text-gray-400 text-xs px-3 py-1 rounded-full shadow-sm">
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+              </svg>
+              Saved {lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </div>
+          )}
+        </div>
 
         {/* ── Webcam proctoring (minimized corner) ─────────────────────── */}
         {assessment.require_webcam && webcamStream && sessionId && userId && attemptId && (

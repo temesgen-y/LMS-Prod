@@ -14,15 +14,23 @@ type AssignmentDetail = {
   max_score: number;
   allow_files: boolean;
   allow_text: boolean;
+  allow_url: boolean;
+  allow_media: boolean;
   late_allowed: boolean;
   offering_id: string;
   course_name: string;
+  assignment_type: string;
+  group_assignment: boolean;
 };
 
 type Submission = {
   id: string;
   text_body: string | null;
   file_urls: string[] | null;
+  url_submission: string | null;
+  media_urls: string[] | null;
+  draft_text: string | null;
+  draft_saved_at: string | null;
   status: string;
   submitted_at: string;
   score: number | null;
@@ -42,11 +50,17 @@ export default function AssignmentSubmitPage() {
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [loading, setLoading]         = useState(true);
   const [textBody, setTextBody]       = useState('');
+  const [urlSubmission, setUrlSubmission] = useState('');
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [pendingMedia, setPendingMedia] = useState<PendingFile[]>([]);
   const [submitting, setSubmitting]   = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -60,7 +74,7 @@ export default function AssignmentSubmitPage() {
 
       const { data: asgn } = await supabase
         .from('assignments')
-        .select(`id, title, brief, due_date, max_score, allow_files, allow_text, late_allowed, offering_id, course_offerings(courses(title))`)
+        .select(`id, title, brief, due_date, max_score, allow_files, allow_text, allow_url, allow_media, late_allowed, offering_id, assignment_type, group_assignment, course_offerings(courses(title))`)
         .eq('id', id)
         .single();
 
@@ -68,7 +82,10 @@ export default function AssignmentSubmitPage() {
       setAssignment({
         id: asgn.id, title: asgn.title, brief: asgn.brief, due_date: asgn.due_date,
         max_score: asgn.max_score, allow_files: asgn.allow_files, allow_text: asgn.allow_text,
+        allow_url: (asgn as any).allow_url ?? false, allow_media: (asgn as any).allow_media ?? false,
         late_allowed: asgn.late_allowed, offering_id: asgn.offering_id,
+        assignment_type: (asgn as any).assignment_type ?? 'individual',
+        group_assignment: (asgn as any).group_assignment ?? false,
         course_name: (asgn as any).course_offerings?.courses?.title ?? 'Unknown Course',
       });
 
@@ -79,9 +96,14 @@ export default function AssignmentSubmitPage() {
 
       const { data: sub } = await supabase
         .from('assignment_submissions')
-        .select('id, text_body, file_urls, status, submitted_at, score, final_score, feedback')
+        .select('id, text_body, file_urls, url_submission, media_urls, draft_text, draft_saved_at, status, submitted_at, score, final_score, feedback')
         .eq('assignment_id', id).eq('student_id', profile.id).maybeSingle();
-      if (sub) { setSubmission(sub); setTextBody(sub.text_body ?? ''); }
+      if (sub) {
+        setSubmission(sub as any);
+        setTextBody(sub.text_body ?? (sub as any).draft_text ?? '');
+        setUrlSubmission((sub as any).url_submission ?? '');
+        if ((sub as any).draft_saved_at) setDraftSavedAt(new Date((sub as any).draft_saved_at));
+      }
 
       setLoading(false);
     })();
@@ -92,7 +114,33 @@ export default function AssignmentSubmitPage() {
     setPendingFiles(prev => [...prev, ...picked.map(f => ({ file: f, name: f.name, sizeKb: Math.ceil(f.size / 1024) }))]);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
-  const removePendingFile = (idx: number) => setPendingFiles(prev => prev.filter((_, i) => i !== idx));
+  const removePendingFile  = (idx: number) => setPendingFiles(prev => prev.filter((_, i) => i !== idx));
+
+  const handleMediaPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    setPendingMedia(prev => [...prev, ...picked.map(f => ({ file: f, name: f.name, sizeKb: Math.ceil(f.size / 1024) }))]);
+    if (mediaInputRef.current) mediaInputRef.current.value = '';
+  };
+  const removePendingMedia = (idx: number) => setPendingMedia(prev => prev.filter((_, i) => i !== idx));
+
+  // Draft auto-save (debounced 15s after last change)
+  const scheduleDraftSave = (text: string, url: string) => {
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(async () => {
+      if (!userId || !assignment || !enrollmentId) return;
+      setDraftSaving(true);
+      const supabase = createClient();
+      const base = { assignment_id: assignment.id, student_id: userId, enrollment_id: enrollmentId };
+      if (submission) {
+        await supabase.from('assignment_submissions').update({ draft_text: text || null, draft_saved_at: new Date().toISOString() }).eq('id', submission.id);
+      } else {
+        // Upsert a draft row
+        await supabase.from('assignment_submissions').upsert({ ...base, draft_text: text || null, draft_saved_at: new Date().toISOString(), status: 'draft', is_late: false }, { onConflict: 'assignment_id,student_id' });
+      }
+      setDraftSavedAt(new Date());
+      setDraftSaving(false);
+    }, 15_000);
+  };
 
   const handleSubmit = async () => {
     if (!assignment || !userId || !enrollmentId) return;
@@ -108,8 +156,10 @@ export default function AssignmentSubmitPage() {
 
     const hasText  = textBody.replace(/<[^>]+>/g, '').trim().length > 0;
     const hasFiles = pendingFiles.length > 0 || (submission?.file_urls?.length ?? 0) > 0;
-    if (!hasText && !hasFiles) {
-      setError('Please write a response or attach at least one file.');
+    const hasUrl   = urlSubmission.trim().length > 0;
+    const hasMedia = pendingMedia.length > 0 || (submission?.media_urls?.length ?? 0) > 0;
+    if (!hasText && !hasFiles && !hasUrl && !hasMedia) {
+      setError('Please write a response, attach a file, provide a URL, or upload media.');
       return;
     }
 
@@ -126,13 +176,28 @@ export default function AssignmentSubmitPage() {
       newFileUrls.push(urlData.publicUrl);
     }
 
-    const allFileUrls = [...(submission?.file_urls ?? []), ...newFileUrls];
+    // Upload media files
+    const newMediaUrls: string[] = [];
+    for (const mf of pendingMedia) {
+      const path = `assignments/${assignment.id}/${userId}/media/${Date.now()}_${mf.name}`;
+      const { error: upErr } = await supabase.storage.from('lms-uploads').upload(path, mf.file, { upsert: true });
+      if (upErr) { setError(`Media upload failed: ${upErr.message}`); setSubmitting(false); return; }
+      const { data: urlData } = supabase.storage.from('lms-uploads').getPublicUrl(path);
+      newMediaUrls.push(urlData.publicUrl);
+    }
+
+    const allFileUrls  = [...(submission?.file_urls ?? []), ...newFileUrls];
+    const allMediaUrls = [...(submission?.media_urls ?? []), ...newMediaUrls];
 
     const payload: Record<string, unknown> = {
-      assignment_id: assignment.id, student_id: userId, enrollment_id: enrollmentId,
-      is_late: isLate, status: 'submitted', submitted_at: now.toISOString(),
-      text_body: hasText ? textBody : null,
-      file_urls: allFileUrls.length > 0 ? allFileUrls : null,
+      assignment_id:  assignment.id, student_id: userId, enrollment_id: enrollmentId,
+      is_late:        isLate, status: 'submitted', submitted_at: now.toISOString(),
+      text_body:      hasText  ? textBody          : null,
+      file_urls:      allFileUrls.length  > 0 ? allFileUrls  : null,
+      url_submission: hasUrl   ? urlSubmission.trim() : null,
+      media_urls:     allMediaUrls.length > 0 ? allMediaUrls : null,
+      draft_text:     null, // clear draft on submit
+      draft_saved_at: null,
     };
 
     if (submission) {
@@ -263,7 +328,7 @@ export default function AssignmentSubmitPage() {
               {isEditable ? (
                 <RichTextEditor
                   value={textBody}
-                  onChange={html => setTextBody(html)}
+                  onChange={html => { setTextBody(html); scheduleDraftSave(html, urlSubmission); }}
                   minHeight="220px"
                 />
               ) : (
@@ -325,6 +390,85 @@ export default function AssignmentSubmitPage() {
                 </div>
               )}
             </div>
+
+            {/* URL submission */}
+            {assignment.allow_url && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">URL Submission</label>
+                {isEditable ? (
+                  <input
+                    type="url"
+                    value={urlSubmission}
+                    onChange={e => { setUrlSubmission(e.target.value); scheduleDraftSave(textBody, e.target.value); }}
+                    placeholder="https://github.com/your-repo or any relevant link"
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]/20"
+                  />
+                ) : (
+                  submission?.url_submission
+                    ? <a href={submission.url_submission} target="_blank" rel="noopener noreferrer" className="text-sm text-[#4c1d95] underline break-all">{submission.url_submission}</a>
+                    : <span className="text-sm text-gray-400 italic">No URL submitted</span>
+                )}
+              </div>
+            )}
+
+            {/* Media upload */}
+            {assignment.allow_media && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Media Submission (video/audio)</label>
+
+                {submission?.media_urls && submission.media_urls.length > 0 && (
+                  <div className="mb-3 space-y-1.5">
+                    {submission.media_urls.map((url, i) => {
+                      const fn = url.split('/').pop()?.split('_').slice(1).join('_') ?? `Media ${i + 1}`;
+                      return (
+                        <a key={i} href={url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-[#4c1d95] hover:bg-purple-50">
+                          <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                          <span className="truncate">{decodeURIComponent(fn)}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {isEditable && (
+                  <div className="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50">
+                    {pendingMedia.length > 0 && (
+                      <ul className="space-y-1.5 mb-3">
+                        {pendingMedia.map((mf, idx) => (
+                          <li key={idx} className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/></svg>
+                              <span className="truncate text-gray-700">{mf.name}</span>
+                              <span className="text-xs text-gray-400 shrink-0">{mf.sizeKb} KB</span>
+                            </div>
+                            <button type="button" onClick={() => removePendingMedia(idx)} className="text-gray-400 hover:text-red-500 shrink-0">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <button type="button" onClick={() => mediaInputRef.current?.click()}
+                      className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/></svg>
+                      {pendingMedia.length > 0 ? 'Add more media' : 'Attach media'}
+                    </button>
+                    <input ref={mediaInputRef} type="file" multiple accept="video/*,audio/*" className="hidden" onChange={handleMediaPick} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Draft save indicator */}
+            {isEditable && (draftSaving || draftSavedAt) && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                {draftSaving
+                  ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z"/></svg> Saving draft…</>
+                  : <><svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg> Draft saved {draftSavedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</>
+                }
+              </div>
+            )}
 
             {/* Error / success */}
             {error && (

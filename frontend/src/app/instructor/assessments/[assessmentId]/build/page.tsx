@@ -10,7 +10,7 @@ import Link from 'next/link';
 
 type QuestionType =
   | 'mcq' | 'true_false' | 'short_answer' | 'fill_blank'
-  | 'essay' | 'matching' | 'multiple_select';
+  | 'essay' | 'matching' | 'multiple_select' | 'numerical';
 
 type OptionRow = {
   id: string;
@@ -30,6 +30,10 @@ type Question = {
   mediaUrl: string | null;
   sectionLabel: string | null;
   options: OptionRow[];
+  correctValue: number | null;
+  tolerance: number;
+  toleranceType: 'absolute' | 'percentage';
+  unit: string | null;
 };
 
 type Assessment = {
@@ -60,6 +64,10 @@ type DraftForm = {
   sectionLabel: string;
   options: DraftOption[];
   pairs: DraftPair[];
+  correctValue: string;
+  tolerance: string;
+  toleranceType: 'absolute' | 'percentage';
+  unit: string;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -72,6 +80,7 @@ const TYPE_LABELS: Record<string, string> = {
   essay:           'Essay',
   matching:        'Matching',
   multiple_select: 'Multiple Select',
+  numerical:       'Numerical',
 };
 
 const SECTION_TITLES: Record<string, string> = {
@@ -82,6 +91,7 @@ const SECTION_TITLES: Record<string, string> = {
   essay:           'Essay Questions',
   matching:        'Matching Questions',
   multiple_select: 'Multiple Select Questions',
+  numerical:       'Numerical / Calculation Questions',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -92,6 +102,7 @@ const TYPE_COLORS: Record<string, string> = {
   essay:           'bg-purple-100 text-purple-700 border-purple-200',
   matching:        'bg-pink-100 text-pink-700 border-pink-200',
   multiple_select: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  numerical:       'bg-cyan-100 text-cyan-700 border-cyan-200',
 };
 
 const SECTION_BORDER: Record<string, string> = {
@@ -102,6 +113,7 @@ const SECTION_BORDER: Record<string, string> = {
   essay:           'border-l-purple-400',
   matching:        'border-l-pink-400',
   multiple_select: 'border-l-indigo-400',
+  numerical:       'border-l-cyan-400',
 };
 
 const SECTION_BG: Record<string, string> = {
@@ -112,6 +124,7 @@ const SECTION_BG: Record<string, string> = {
   essay:           'bg-purple-50/60',
   matching:        'bg-pink-50/60',
   multiple_select: 'bg-indigo-50/60',
+  numerical:       'bg-cyan-50/60',
 };
 
 const TYPE_ICONS: Record<string, string> = {
@@ -122,6 +135,7 @@ const TYPE_ICONS: Record<string, string> = {
   essay:           '📝',
   matching:        '⇄',
   multiple_select: '☑',
+  numerical:       '🔢',
 };
 
 const TYPE_DESC: Record<string, string> = {
@@ -132,6 +146,7 @@ const TYPE_DESC: Record<string, string> = {
   essay:           'Long written response — manually graded',
   matching:        'Match items from left column to right column',
   multiple_select: 'Select ALL correct answers — partial credit not awarded',
+  numerical:       'Student enters a number — auto-graded with tolerance range',
 };
 
 const ASSESSMENT_TYPE_LABELS: Record<string, string> = {
@@ -172,6 +187,7 @@ function emptyForm(nextOrder = 0, type: QuestionType = 'mcq', sectionLabel = '')
     explanation: '', mediaUrl: '', sectionLabel,
     options: defaultOptions(type),
     pairs:   defaultPairs(type),
+    correctValue: '', tolerance: '0', toleranceType: 'absolute', unit: '',
   };
 }
 
@@ -236,20 +252,24 @@ export default function AssessmentBuildPage() {
     const supabase = createClient();
     const { data: qs } = await supabase
       .from('questions')
-      .select('id, type, body, marks, sort_order, explanation, media_url, section_label, question_options(id, body, is_correct, sort_order, match_target)')
+      .select('id, type, body, marks, sort_order, explanation, media_url, section_label, correct_value, tolerance, tolerance_type, unit, question_options(id, body, is_correct, sort_order, match_target)')
       .eq('assessment_id', assessmentId)
       .order('sort_order', { ascending: true });
 
     const mapped: Question[] = ((qs ?? []) as any[]).map((q: any) => ({
-      id:           q.id,
-      type:         q.type as QuestionType,
-      body:         q.body ?? '',
-      marks:        q.marks ?? 1,
-      sortOrder:    q.sort_order ?? 0,
-      explanation:  q.explanation ?? null,
-      mediaUrl:     q.media_url ?? null,
-      sectionLabel: q.section_label ?? null,
-      options:      ((q.question_options ?? []) as any[])
+      id:            q.id,
+      type:          q.type as QuestionType,
+      body:          q.body ?? '',
+      marks:         q.marks ?? 1,
+      sortOrder:     q.sort_order ?? 0,
+      explanation:   q.explanation ?? null,
+      mediaUrl:      q.media_url ?? null,
+      sectionLabel:  q.section_label ?? null,
+      correctValue:  q.correct_value ?? null,
+      tolerance:     q.tolerance ?? 0,
+      toleranceType: (q.tolerance_type ?? 'absolute') as 'absolute' | 'percentage',
+      unit:          q.unit ?? null,
+      options:       ((q.question_options ?? []) as any[])
         .sort((a: any, b: any) => a.sort_order - b.sort_order)
         .map((o: any) => ({
           id:          o.id,
@@ -324,15 +344,19 @@ export default function AssessmentBuildPage() {
       ? q.options.map(o => ({ tempId: o.id, savedId: o.id, left: o.body, right: o.matchTarget ?? '' }))
       : [];
     setForm({
-      body:         q.body,
-      type:         q.type,
-      marks:        String(q.marks),
-      sortOrder:    String(q.sortOrder),
-      explanation:  q.explanation ?? '',
-      mediaUrl:     q.mediaUrl ?? '',
-      sectionLabel: q.sectionLabel ?? '',
+      body:          q.body,
+      type:          q.type,
+      marks:         String(q.marks),
+      sortOrder:     String(q.sortOrder),
+      explanation:   q.explanation ?? '',
+      mediaUrl:      q.mediaUrl ?? '',
+      sectionLabel:  q.sectionLabel ?? '',
       options,
       pairs,
+      correctValue:  q.correctValue != null ? String(q.correctValue) : '',
+      tolerance:     String(q.tolerance ?? 0),
+      toleranceType: q.toleranceType ?? 'absolute',
+      unit:          q.unit ?? '',
     });
     setFormError('');
     setFormOpen(true);
@@ -387,6 +411,12 @@ export default function AssessmentBuildPage() {
       if (form.pairs.length < 2) return 'Matching needs at least 2 pairs.';
       if (form.pairs.some(p => !p.left.trim() || !p.right.trim())) return 'All matching pairs must have both sides filled.';
     }
+    if (form.type === 'numerical') {
+      if (form.correctValue.trim() === '') return 'Correct value is required for numerical questions.';
+      if (isNaN(parseFloat(form.correctValue))) return 'Correct value must be a valid number.';
+      if (isNaN(parseFloat(form.tolerance)) || parseFloat(form.tolerance) < 0)
+        return 'Tolerance must be a non-negative number.';
+    }
     return null;
   }
 
@@ -418,14 +448,18 @@ export default function AssessmentBuildPage() {
     const marks    = parseInt(form.marks, 10);
 
     const qPayload: any = {
-      assessment_id: assessmentId,
-      type:          form.type,
-      body:          form.body.trim(),
+      assessment_id:  assessmentId,
+      type:           form.type,
+      body:           form.body.trim(),
       marks,
-      sort_order:    parseInt(form.sortOrder, 10) || 0,
-      explanation:   form.explanation.trim() || null,
-      media_url:     form.mediaUrl.trim() || null,
-      section_label: form.sectionLabel.trim() || null,
+      sort_order:     parseInt(form.sortOrder, 10) || 0,
+      explanation:    form.explanation.trim() || null,
+      media_url:      form.mediaUrl.trim() || null,
+      section_label:  form.sectionLabel.trim() || null,
+      correct_value:  form.type === 'numerical' ? parseFloat(form.correctValue) : null,
+      tolerance:      form.type === 'numerical' ? parseFloat(form.tolerance) || 0 : 0,
+      tolerance_type: form.type === 'numerical' ? form.toleranceType : 'absolute',
+      unit:           form.type === 'numerical' && form.unit.trim() ? form.unit.trim() : null,
     };
 
     let qId = editingId;
@@ -807,7 +841,7 @@ export default function AssessmentBuildPage() {
                 Question Type for Section {nextSectionLabel(sections)}
               </label>
               <div className="grid grid-cols-2 gap-2 mb-6">
-                {(['true_false','mcq','fill_blank','short_answer','matching','multiple_select','essay'] as QuestionType[]).map(t => (
+                {(['true_false','mcq','fill_blank','short_answer','matching','multiple_select','essay','numerical'] as QuestionType[]).map(t => (
                   <button
                     key={t}
                     type="button"
@@ -978,6 +1012,19 @@ function QuestionCard({
         </div>
       )}
 
+      {question.type === 'numerical' && question.correctValue != null && (
+        <div className="px-5 pb-4">
+          <div className="inline-flex items-center gap-2 text-xs text-cyan-700 bg-cyan-50 border border-cyan-200 px-3 py-1.5 rounded-lg">
+            <span className="font-semibold">Correct: {question.correctValue}{question.unit ? ` ${question.unit}` : ''}</span>
+            {question.tolerance > 0 && (
+              <span className="text-cyan-500">
+                ± {question.tolerance}{question.toleranceType === 'percentage' ? '%' : question.unit ? ` ${question.unit}` : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {question.explanation && (
         <div className="px-5 pb-3">
           <p className="text-xs text-blue-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-1.5">
@@ -1006,7 +1053,7 @@ function QuestionForm({
 }) {
   const ALL_TYPES: QuestionType[] = [
     'mcq', 'true_false', 'multiple_select', 'fill_blank',
-    'short_answer', 'matching', 'essay',
+    'short_answer', 'matching', 'essay', 'numerical',
   ];
 
   const setOpt  = (i: number, patch: Partial<DraftOption>) =>
@@ -1314,6 +1361,70 @@ function QuestionForm({
                 Students pick from the <span className="text-green-600 font-medium">B</span> pool to match each <span className="text-pink-600 font-medium">A</span> item
               </p>
             </div>
+          </div>
+        )}
+
+        {/* ── NUMERICAL ────────────────────────────────────────────────── */}
+        {form.type === 'numerical' && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-cyan-50 border border-cyan-200 px-4 py-3 text-sm text-cyan-700">
+              <p className="font-semibold mb-0.5">Auto-graded numerical answer</p>
+              <p className="text-xs">The student enters a number. The answer is marked correct if it falls within the tolerance range.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Correct Value <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number" step="any" value={form.correctValue}
+                  placeholder="e.g. 9.81"
+                  onChange={e => setForm(f => ({ ...f, correctValue: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Unit (optional)</label>
+                <input
+                  type="text" value={form.unit}
+                  placeholder="e.g. m/s², kg, N"
+                  onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Tolerance</label>
+                <input
+                  type="number" min="0" step="any" value={form.tolerance}
+                  placeholder="0"
+                  onChange={e => setForm(f => ({ ...f, tolerance: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Tolerance Type</label>
+                <select
+                  value={form.toleranceType}
+                  onChange={e => setForm(f => ({ ...f, toleranceType: e.target.value as 'absolute' | 'percentage' }))}
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-300"
+                >
+                  <option value="absolute">Absolute (±value)</option>
+                  <option value="percentage">Percentage (±%)</option>
+                </select>
+              </div>
+            </div>
+            {form.correctValue && (
+              <p className="text-xs text-cyan-600 bg-cyan-50 border border-cyan-100 px-3 py-2 rounded-lg">
+                Accepted range:{' '}
+                {form.toleranceType === 'absolute'
+                  ? `${parseFloat(form.correctValue) - parseFloat(form.tolerance || '0')} to ${parseFloat(form.correctValue) + parseFloat(form.tolerance || '0')}`
+                  : `${(parseFloat(form.correctValue) * (1 - parseFloat(form.tolerance || '0') / 100)).toFixed(4)} to ${(parseFloat(form.correctValue) * (1 + parseFloat(form.tolerance || '0') / 100)).toFixed(4)}`
+                }
+                {form.unit ? ` ${form.unit}` : ''}
+              </p>
+            )}
           </div>
         )}
 

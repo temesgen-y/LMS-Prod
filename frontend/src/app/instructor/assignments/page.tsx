@@ -11,6 +11,8 @@ type Assignment = {
   id: string; offeringId: string; offeringLabel: string; title: string;
   maxScore: number; dueDate: string;
   allowFiles: boolean; allowText: boolean; lateAllowed: boolean; status: string;
+  assignmentType: string; allowUrl: boolean; allowMedia: boolean;
+  groupAssignment: boolean; maxGroupSize: number;
 };
 type OfferingOption = { id: string; label: string };
 type PendingFile = { file: File; name: string; sizeKb: number };
@@ -18,10 +20,14 @@ type PendingFile = { file: File; name: string; sizeKb: number };
 const STATUSES = ['draft', 'published', 'closed'];
 const STATUS_COLORS: Record<string, string> = { draft: 'text-gray-500', published: 'text-green-600', closed: 'text-amber-600' };
 const PAGE_SIZE = 10;
+const ASSIGNMENT_TYPES = ['individual', 'group', 'practice', 'homework', 'project'] as const;
+
 const initialForm = {
   offeringId: '', title: '', brief: '', maxScore: '100',
   allowFiles: true, allowedTypes: '', maxFileMb: '10',
-  allowText: false, dueDate: '', lateAllowed: false, latePenaltyPct: '0', status: 'draft',
+  allowText: false, allowUrl: false, allowMedia: false,
+  dueDate: '', lateAllowed: false, latePenaltyPct: '0', status: 'draft',
+  assignmentType: 'individual', groupAssignment: false, maxGroupSize: '4',
 };
 
 // ─── Notify helper ────────────────────────────────────────────────────────────
@@ -289,9 +295,9 @@ export default function InstructorAssignmentsPage() {
     const { data: ciData } = await supabase.from('course_instructors').select('offering_id').eq('instructor_id', userId);
     const offeringIds = (ciData ?? []).map((r: any) => r.offering_id);
     if (!offeringIds.length) { setAssignments([]); setLoading(false); return; }
-    const { data, error } = await supabase.from('assignments').select(`id,offering_id,title,max_score,due_date,allow_files,allow_text,late_allowed,status,course_offerings!fk_assignments_offering(section_name,courses!fk_course_offerings_course(code,title),academic_terms!fk_course_offerings_term(academic_year_label,term_name,term_code))`).in('offering_id', offeringIds).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('assignments').select(`id,offering_id,title,max_score,due_date,allow_files,allow_text,allow_url,allow_media,late_allowed,status,assignment_type,group_assignment,max_group_size,course_offerings!fk_assignments_offering(section_name,courses!fk_course_offerings_course(code,title),academic_terms!fk_course_offerings_term(academic_year_label,term_name,term_code))`).in('offering_id', offeringIds).order('created_at', { ascending: false });
     if (error) toast.error('Failed to load assignments.');
-    else setAssignments((data ?? []).map((r: any) => { const o = r.course_offerings ?? {}; const c = o.courses ?? {}; const t = o.academic_terms ?? {}; return { id: r.id, offeringId: r.offering_id, offeringLabel: `${(c.code ?? '').toUpperCase()} — ${c.title ?? '—'} · ${[t.academic_year_label, t.term_name ?? t.term_code].filter(Boolean).join(' · ')} · Sec ${o.section_name ?? 'A'}`, title: r.title ?? '', maxScore: r.max_score ?? 100, dueDate: r.due_date ?? '', allowFiles: r.allow_files ?? true, allowText: r.allow_text ?? false, lateAllowed: r.late_allowed ?? false, status: r.status ?? 'draft' }; }));
+    else setAssignments((data ?? []).map((r: any) => { const o = r.course_offerings ?? {}; const c = o.courses ?? {}; const t = o.academic_terms ?? {}; return { id: r.id, offeringId: r.offering_id, offeringLabel: `${(c.code ?? '').toUpperCase()} — ${c.title ?? '—'} · ${[t.academic_year_label, t.term_name ?? t.term_code].filter(Boolean).join(' · ')} · Sec ${o.section_name ?? 'A'}`, title: r.title ?? '', maxScore: r.max_score ?? 100, dueDate: r.due_date ?? '', allowFiles: r.allow_files ?? true, allowText: r.allow_text ?? false, allowUrl: r.allow_url ?? false, allowMedia: r.allow_media ?? false, lateAllowed: r.late_allowed ?? false, status: r.status ?? 'draft', assignmentType: r.assignment_type ?? 'individual', groupAssignment: r.group_assignment ?? false, maxGroupSize: r.max_group_size ?? 4 }; }));
     setLoading(false);
   }, [getCurrentUserId]);
 
@@ -307,7 +313,7 @@ export default function InstructorAssignmentsPage() {
 
   const openEditModal = useCallback((a: Assignment) => {
     setEditingId(a.id);
-    setForm({ offeringId: a.offeringId, title: a.title, brief: '', maxScore: String(a.maxScore), allowFiles: a.allowFiles, allowedTypes: '', maxFileMb: '10', allowText: a.allowText, dueDate: a.dueDate ? new Date(a.dueDate).toISOString().slice(0, 16) : '', lateAllowed: a.lateAllowed, latePenaltyPct: '0', status: a.status });
+    setForm({ offeringId: a.offeringId, title: a.title, brief: '', maxScore: String(a.maxScore), allowFiles: a.allowFiles, allowedTypes: '', maxFileMb: '10', allowText: a.allowText, allowUrl: a.allowUrl, allowMedia: a.allowMedia, dueDate: a.dueDate ? new Date(a.dueDate).toISOString().slice(0, 16) : '', lateAllowed: a.lateAllowed, latePenaltyPct: '0', status: a.status, assignmentType: a.assignmentType, groupAssignment: a.groupAssignment, maxGroupSize: String(a.maxGroupSize) });
     setPendingFiles([]);
     setSubmitError('');
     setModalOpen(true);
@@ -382,20 +388,25 @@ export default function InstructorAssignmentsPage() {
     const supabase = createClient();
     const prevStatus = editingId ? (assignments.find(a => a.id === editingId)?.status ?? '') : '';
     const payload: any = {
-      offering_id: form.offeringId,
-      created_by: userId,
-      title: form.title.trim(),
-      brief: briefHtml || '(no brief)',
-      max_score: maxScore,
-      weight_pct: 0,
-      allow_files: form.allowFiles,
-      allowed_types: form.allowedTypes.trim() || null,
-      max_file_mb: parseInt(form.maxFileMb, 10) || 10,
-      allow_text: form.allowText,
-      due_date: new Date(form.dueDate).toISOString(),
-      late_allowed: form.lateAllowed,
+      offering_id:      form.offeringId,
+      created_by:       userId,
+      title:            form.title.trim(),
+      brief:            briefHtml || '(no brief)',
+      max_score:        maxScore,
+      weight_pct:       0,
+      allow_files:      form.allowFiles,
+      allowed_types:    form.allowedTypes.trim() || null,
+      max_file_mb:      parseInt(form.maxFileMb, 10) || 10,
+      allow_text:       form.allowText,
+      allow_url:        form.allowUrl,
+      allow_media:      form.allowMedia,
+      due_date:         new Date(form.dueDate).toISOString(),
+      late_allowed:     form.lateAllowed,
       late_penalty_pct: parseFloat(form.latePenaltyPct) || 0,
-      status: form.status,
+      status:           form.status,
+      assignment_type:  form.assignmentType,
+      group_assignment: form.groupAssignment,
+      max_group_size:   parseInt(form.maxGroupSize, 10) || 4,
     };
 
     let error;
@@ -518,6 +529,23 @@ export default function InstructorAssignmentsPage() {
                   </div>
                 </div>
 
+                {/* 4b. Assignment Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Assignment Type</label>
+                  <div className="flex flex-wrap gap-2">
+                    {ASSIGNMENT_TYPES.map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setForm((f: any) => ({ ...f, assignmentType: t, groupAssignment: t === 'group' ? true : f.groupAssignment }))}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border capitalize transition-colors ${form.assignmentType === t ? 'bg-primary text-primary-foreground border-primary' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* 5. Max Score */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Max Score</label>
@@ -538,16 +566,41 @@ export default function InstructorAssignmentsPage() {
                   </div>
                 </div>
 
-                {/* 7. Allow file uploads | Allow text submission */}
-                <div className="flex flex-wrap gap-5">
+                {/* 7. Submission types */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Allowed Submission Types</label>
+                  <div className="flex flex-wrap gap-5">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.allowFiles} onChange={e => setForm((f: any) => ({ ...f, allowFiles: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                      <span className="text-sm text-gray-700">File upload</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.allowText} onChange={e => setForm((f: any) => ({ ...f, allowText: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                      <span className="text-sm text-gray-700">Text / written response</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.allowUrl} onChange={e => setForm((f: any) => ({ ...f, allowUrl: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                      <span className="text-sm text-gray-700">URL / link submission</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.allowMedia} onChange={e => setForm((f: any) => ({ ...f, allowMedia: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                      <span className="text-sm text-gray-700">Media upload (video/audio)</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* 7b. Group assignment options */}
+                <div className="space-y-3">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.allowFiles} onChange={e => setForm((f: any) => ({ ...f, allowFiles: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
-                    <span className="text-sm text-gray-700">Allow file uploads</span>
+                    <input type="checkbox" checked={form.groupAssignment} onChange={e => setForm((f: any) => ({ ...f, groupAssignment: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                    <span className="text-sm text-gray-700">Group assignment (students submit as teams)</span>
                   </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={form.allowText} onChange={e => setForm((f: any) => ({ ...f, allowText: e.target.checked }))} className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary" />
-                    <span className="text-sm text-gray-700">Allow text submission</span>
-                  </label>
+                  {form.groupAssignment && (
+                    <div className="ml-6">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max group size</label>
+                      <input type="number" min={2} max={20} value={form.maxGroupSize} onChange={e => setForm((f: any) => ({ ...f, maxGroupSize: e.target.value }))} className="w-28 px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    </div>
+                  )}
                 </div>
 
                 {/* 8. Allow late submission */}
@@ -620,7 +673,7 @@ export default function InstructorAssignmentsPage() {
                   ? <tr><td colSpan={5} className="px-5 py-10 text-center text-sm text-gray-500">No assignments found.</td></tr>
                   : paginated.map(a => (
                     <tr key={a.id} className="border-b border-gray-100 hover:bg-gray-50/50">
-                      <td className="px-5 py-3"><div className="text-sm font-medium text-gray-900">{a.title}</div><div className="text-xs text-gray-500 line-clamp-1">{a.offeringLabel}</div></td>
+                      <td className="px-5 py-3"><div className="text-sm font-medium text-gray-900 flex items-center gap-2">{a.title}<span className="text-[10px] font-semibold capitalize bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">{a.assignmentType}</span>{a.groupAssignment && <span className="text-[10px] font-semibold bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded">Group</span>}</div><div className="text-xs text-gray-500 line-clamp-1">{a.offeringLabel}</div></td>
                       <td className="px-5 py-3 text-sm text-gray-600">{a.maxScore}</td>
                       <td className="px-5 py-3 text-sm text-gray-600">{a.dueDate ? new Date(a.dueDate).toLocaleDateString() : '—'}</td>
                       <td className="px-5 py-3"><span className={`text-sm font-medium capitalize ${STATUS_COLORS[a.status] ?? 'text-gray-500'}`}>{a.status}</span></td>
