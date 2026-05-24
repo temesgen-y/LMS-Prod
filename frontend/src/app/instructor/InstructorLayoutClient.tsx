@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessageCount } from '@/hooks/useUnreadMessageCount';
 import NavDropdown from '@/components/instructor/NavDropdown';
+import GlobalSearch from '@/components/shared/GlobalSearch';
 
 type Notif = {
   id: string;
@@ -410,6 +411,10 @@ export default function InstructorLayoutClient({
             </Link>
           </div>
         </div>
+
+        {/* Global search */}
+        <GlobalSearch />
+
         <div className="flex items-center gap-2">
 
           <NavDropdown

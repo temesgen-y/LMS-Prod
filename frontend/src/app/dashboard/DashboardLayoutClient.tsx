@@ -7,6 +7,7 @@ import { ClassSidebarProvider, useClassSidebar } from './ClassSidebarContext';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessageCount } from '@/hooks/useUnreadMessageCount';
 import { useUnreadGroups } from '@/hooks/useUnreadGroups';
+import GlobalSearch from '@/components/shared/GlobalSearch';
 
 export type DashboardUser = { id: string; name: string; email: string; role: string };
 
@@ -309,6 +310,9 @@ function InnerLayout({
               )}
             </Link>
           </div>
+
+          {/* Global search */}
+          <GlobalSearch />
 
           {/* Spacer */}
           <div className="flex-1" />
