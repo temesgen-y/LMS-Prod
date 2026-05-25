@@ -52,6 +52,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     section: 'MY PROGRESS',
     items: [
+      { href: '/dashboard/analytics',       label: 'Analytics',          icon: '📊', exact: false },
       { href: '/dashboard/grades',          label: 'My Grades',         icon: '📈', exact: false },
       { href: '/dashboard/grade-reports',   label: 'Grade Reports',      icon: '📉', exact: false },
       { href: '/dashboard/gpa-calculator',  label: 'GPA Calculator',     icon: '🧮', exact: false },
