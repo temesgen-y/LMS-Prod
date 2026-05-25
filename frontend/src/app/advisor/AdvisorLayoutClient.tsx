@@ -21,19 +21,26 @@ const navSections: NavSection[] = [
   },
   {
     label: 'MY STUDENTS',
-    items: [{ href: '/advisor/students', label: 'Assigned Students' }],
+    items: [
+      { href: '/advisor/students', label: 'Assigned Students' },
+      { href: '/advisor/at-risk', label: 'At-Risk Students' },
+    ],
   },
   {
     label: 'ADVISING',
     items: [
       { href: '/advisor/appointments', label: 'Appointments' },
+      { href: '/advisor/registration-requests', label: 'Registration Requests' },
       { href: '/advisor/holds', label: 'Hold Management' },
       { href: '/advisor/calendar', label: 'Academic Calendar' },
     ],
   },
   {
     label: 'ACCOUNT',
-    items: [{ href: '/change-password', label: 'Change Password' }],
+    items: [
+      { href: '/advisor/profile', label: 'My Profile' },
+      { href: '/change-password', label: 'Change Password' },
+    ],
   },
 ];
 

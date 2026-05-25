@@ -9,6 +9,7 @@ interface Stats {
   upcomingAppointments: number;
   activeHolds: number;
   completedSessions: number;
+  pendingRequests: number;
 }
 
 interface RecentAppointment {
@@ -22,7 +23,7 @@ interface RecentAppointment {
 export default function AdvisorDashboard() {
   const supabase = createClient();
   const [advisorId, setAdvisorId] = useState('');
-  const [stats, setStats] = useState<Stats>({ assignedStudents: 0, upcomingAppointments: 0, activeHolds: 0, completedSessions: 0 });
+  const [stats, setStats] = useState<Stats>({ assignedStudents: 0, upcomingAppointments: 0, activeHolds: 0, completedSessions: 0, pendingRequests: 0 });
   const [recent, setRecent] = useState<RecentAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -39,11 +40,19 @@ export default function AdvisorDashboard() {
       const weekEnd = new Date(Date.now() + 7 * 86400000).toISOString();
       const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-      const [assigned, upcoming, holds, completed, recentApts] = await Promise.all([
+      // Get assigned student IDs for pending requests count
+      const { data: assignedStudents } = await supabase
+        .from('advisor_assignments').select('student_id').eq('advisor_id', aid).eq('is_active', true);
+      const studentIds = (assignedStudents ?? []).map((a: any) => a.student_id);
+
+      const [assigned, upcoming, holds, completed, pendingReqs, recentApts] = await Promise.all([
         supabase.from('advisor_assignments').select('id', { count: 'exact', head: true }).eq('advisor_id', aid).eq('is_active', true),
         supabase.from('advisor_appointments').select('id', { count: 'exact', head: true }).eq('advisor_id', aid).eq('status', 'scheduled').gte('scheduled_at', now).lte('scheduled_at', weekEnd),
         supabase.from('student_holds').select('id', { count: 'exact', head: true }).eq('placed_by', aid).eq('is_active', true),
         supabase.from('advisor_appointments').select('id', { count: 'exact', head: true }).eq('advisor_id', aid).eq('status', 'completed').gte('scheduled_at', monthStart),
+        studentIds.length > 0
+          ? supabase.from('registration_requests').select('id', { count: 'exact', head: true }).in('student_id', studentIds).eq('status', 'pending')
+          : Promise.resolve({ count: 0 }),
         supabase.from('advisor_appointments')
           .select('id, scheduled_at, purpose, status, users!fk_apt_student(first_name, last_name)')
           .eq('advisor_id', aid)
@@ -56,6 +65,7 @@ export default function AdvisorDashboard() {
         upcomingAppointments: upcoming.count ?? 0,
         activeHolds: holds.count ?? 0,
         completedSessions: completed.count ?? 0,
+        pendingRequests: pendingReqs.count ?? 0,
       });
 
       setRecent(
@@ -85,6 +95,7 @@ export default function AdvisorDashboard() {
   const statCards = [
     { label: 'Assigned Students', value: stats.assignedStudents, color: 'text-teal-600', link: '/advisor/students' },
     { label: 'Appointments This Week', value: stats.upcomingAppointments, color: 'text-blue-600', link: '/advisor/appointments' },
+    { label: 'Pending Requests', value: stats.pendingRequests, color: stats.pendingRequests > 0 ? 'text-amber-600' : 'text-gray-500', link: '/advisor/registration-requests' },
     { label: 'Active Holds', value: stats.activeHolds, color: 'text-red-600', link: '/advisor/holds' },
     { label: 'Sessions This Month', value: stats.completedSessions, color: 'text-green-600', link: '/advisor/appointments' },
   ];
@@ -99,7 +110,7 @@ export default function AdvisorDashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
         {statCards.map(c => (
           <Link key={c.label} href={c.link} className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-sm transition">
             <div className={`text-3xl font-bold ${c.color}`}>{c.value}</div>
