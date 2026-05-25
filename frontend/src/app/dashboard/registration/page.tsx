@@ -11,10 +11,23 @@ type Offering = {
   maxStudents : number | null;
   courseCode  : string;
   courseTitle : string;
+  courseId    : string;
   credits     : number | null;
   instructors : string;
   termName    : string;
 };
+
+type PrereqStatus = {
+  prerequisiteId    : string;
+  prerequisiteCode  : string;
+  prerequisiteTitle : string;
+  minGrade          : string;
+  isRequired        : boolean;
+  met               : boolean;
+};
+
+// Map: offeringId → prerequisite statuses for that course
+type PrereqMap = Record<string, PrereqStatus[]>;
 
 function fmtSeats(enrolled: number, max: number | null) {
   if (!max) return `${enrolled} enrolled`;
@@ -32,6 +45,7 @@ export default function CourseRegistrationPage() {
   const [search, setSearch]       = useState('');
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState<Set<string>>(new Set());
+  const [prereqMap, setPrereqMap] = useState<PrereqMap>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,7 +86,7 @@ export default function CourseRegistrationPage() {
         .from('course_offerings')
         .select(`
           id, section_name, schedule, enrolled_count, max_students,
-          courses!inner(code, title, credit_hours),
+          courses!inner(id, code, title, credit_hours),
           academic_terms!inner(term_name),
           course_instructors(
             users!instructor_id(first_name, last_name)
@@ -101,6 +115,7 @@ export default function CourseRegistrationPage() {
             maxStudents: o.max_students,
             courseCode:  o.courses?.code ?? '—',
             courseTitle: o.courses?.title ?? '—',
+            courseId:    o.courses?.id ?? '',
             credits:     o.courses?.credit_hours ?? null,
             instructors: instructors || 'TBA',
             termName:    o.academic_terms?.term_name ?? '—',
@@ -108,6 +123,48 @@ export default function CourseRegistrationPage() {
         });
 
       setOfferings(mapped);
+
+      // ── Prerequisite check ────────────────────────────────────────────
+      const courseIds = [...new Set(mapped.map(o => o.courseId).filter(Boolean))];
+      if (courseIds.length > 0) {
+        // Fetch all prerequisites for the displayed courses
+        const { data: prereqRows } = await supabase
+          .from('course_prerequisites')
+          .select('course_id, prerequisite_id, min_grade, is_required, courses!course_prerequisites_prerequisite_id_fkey(id, code, title)')
+          .in('course_id', courseIds);
+
+        // Fetch student's completed enrollments (any offering of those prerequisite courses)
+        const prereqCourseIds = [...new Set((prereqRows ?? []).map((p: any) => p.prerequisite_id))];
+        const completedPrereqCourseIds = new Set<string>();
+        if (prereqCourseIds.length > 0) {
+          const { data: completedEnrollments } = await supabase
+            .from('enrollments')
+            .select('offering_id, course_offerings!inner(course_id)')
+            .eq('student_id', sid)
+            .eq('status', 'completed')
+            .in('course_offerings.course_id' as any, prereqCourseIds);
+          (completedEnrollments ?? []).forEach((e: any) => {
+            const cid = e.course_offerings?.course_id;
+            if (cid) completedPrereqCourseIds.add(cid);
+          });
+        }
+
+        // Build prereqMap keyed by offering id
+        const newMap: PrereqMap = {};
+        for (const offering of mapped) {
+          const offeringPrereqs = (prereqRows ?? []).filter((p: any) => p.course_id === offering.courseId);
+          if (offeringPrereqs.length === 0) continue;
+          newMap[offering.id] = offeringPrereqs.map((p: any) => ({
+            prerequisiteId:    p.prerequisite_id,
+            prerequisiteCode:  (p.courses?.code ?? '').toUpperCase(),
+            prerequisiteTitle: p.courses?.title ?? '—',
+            minGrade:          p.min_grade ?? 'D',
+            isRequired:        p.is_required ?? true,
+            met:               completedPrereqCourseIds.has(p.prerequisite_id),
+          }));
+        }
+        setPrereqMap(newMap);
+      }
     } catch (e: any) {
       setError(e.message ?? 'Failed to load courses');
     } finally {
@@ -188,8 +245,12 @@ export default function CourseRegistrationPage() {
           {filtered.map(o => {
             const isSubmitted = submitted.has(o.id);
             const full = o.maxStudents !== null && o.enrolled >= o.maxStudents;
+            const prereqs = prereqMap[o.id] ?? [];
+            const unmetRequired = prereqs.filter(p => p.isRequired && !p.met);
+            const prereqBlocked = unmetRequired.length > 0;
+
             return (
-              <div key={o.id} className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
+              <div key={o.id} className={`bg-white rounded-xl border p-5 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow ${prereqBlocked ? 'border-orange-200' : 'border-gray-200'}`}>
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-[#4c1d95]/10 text-[#4c1d95]">
@@ -223,19 +284,64 @@ export default function CourseRegistrationPage() {
                     <span className={full ? 'text-red-500 font-medium' : ''}>{fmtSeats(o.enrolled, o.maxStudents)}</span>
                   </div>
                 </div>
+
+                {/* Prerequisites section */}
+                {prereqs.length > 0 && (
+                  <div className="border-t border-gray-100 pt-2.5 space-y-1.5">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">Prerequisites</p>
+                    {prereqs.map(p => (
+                      <div key={p.prerequisiteId} className="flex items-center gap-1.5">
+                        {p.met ? (
+                          <svg className="w-3.5 h-3.5 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        )}
+                        <span className={`text-xs font-semibold ${p.met ? 'text-green-700' : 'text-red-600'}`}>
+                          {p.prerequisiteCode}
+                        </span>
+                        <span className="text-xs text-gray-500 truncate">{p.prerequisiteTitle}</span>
+                        {!p.isRequired && (
+                          <span className="text-[9px] text-gray-400 font-medium">(rec.)</span>
+                        )}
+                        <span className="text-[10px] text-gray-400 ml-auto shrink-0">min {p.minGrade}</span>
+                      </div>
+                    ))}
+                    {prereqBlocked && (
+                      <p className="text-xs text-orange-600 font-medium mt-1">
+                        Complete {unmetRequired.length} prerequisite{unmetRequired.length > 1 ? 's' : ''} first
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <button
                   type="button"
-                  disabled={isSubmitted || full || submitting === o.id}
+                  disabled={isSubmitted || full || submitting === o.id || prereqBlocked}
                   onClick={() => requestRegister(o.id, o.courseCode)}
+                  title={prereqBlocked ? `Prerequisite(s) not met: ${unmetRequired.map(p => p.prerequisiteCode).join(', ')}` : undefined}
                   className={`mt-auto w-full py-2 rounded-lg text-sm font-semibold transition-colors ${
                     isSubmitted
                       ? 'bg-green-100 text-green-700 cursor-default'
                       : full
                       ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : prereqBlocked
+                      ? 'bg-orange-50 text-orange-400 cursor-not-allowed border border-orange-200'
                       : 'bg-[#4c1d95] hover:bg-[#5b21b6] text-white'
                   }`}
                 >
-                  {submitting === o.id ? 'Submitting...' : isSubmitted ? '✓ Requested' : full ? 'Full' : 'Request Registration'}
+                  {submitting === o.id
+                    ? 'Submitting...'
+                    : isSubmitted
+                    ? '✓ Requested'
+                    : full
+                    ? 'Full'
+                    : prereqBlocked
+                    ? 'Prerequisites Not Met'
+                    : 'Request Registration'}
                 </button>
               </div>
             );
