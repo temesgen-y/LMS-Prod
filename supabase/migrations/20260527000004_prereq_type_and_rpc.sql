@@ -6,10 +6,20 @@ ALTER TABLE public.course_prerequisites
   ADD COLUMN IF NOT EXISTS prerequisite_type TEXT NOT NULL DEFAULT 'hard'
     CHECK (prerequisite_type IN ('hard', 'soft'));
 
--- Backfill from the existing is_required boolean
-UPDATE public.course_prerequisites
-SET prerequisite_type = CASE WHEN is_required THEN 'hard' ELSE 'soft' END
-WHERE prerequisite_type = 'hard';   -- only rows not yet set
+-- Backfill from the existing is_required boolean if the column exists
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name   = 'course_prerequisites'
+      AND column_name  = 'is_required'
+  ) THEN
+    UPDATE public.course_prerequisites
+    SET prerequisite_type = CASE WHEN is_required THEN 'hard' ELSE 'soft' END;
+  END IF;
+END;
+$$;
 
 -- ─── Grade helpers ────────────────────────────────────────────────────────────
 
