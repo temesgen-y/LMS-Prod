@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type LiveSession = {
@@ -20,6 +21,7 @@ const PAGE_SIZE = 10;
 const initialForm = { offeringId: '', title: '', platform: 'zoom', joinUrl: '', meetingId: '', passcode: '', scheduledAt: '', durationMins: '60', recordingUrl: '', status: 'scheduled' };
 
 export default function InstructorLiveSessionsPage() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [offerings, setOfferings] = useState<OfferingOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,10 +102,45 @@ export default function InstructorLiveSessionsPage() {
     const supabase = createClient();
     const payload: any = { offering_id: form.offeringId, instructor_id: userId, title: form.title.trim(), platform: form.platform, join_url: form.joinUrl.trim(), meeting_id: form.meetingId.trim() || null, passcode: form.passcode.trim() || null, scheduled_at: new Date(form.scheduledAt).toISOString(), duration_mins: durationMins, recording_url: form.recordingUrl.trim() || null, status: form.status };
     let error;
-    if (editingId) { ({ error } = await supabase.from('live_sessions').update(payload).eq('id', editingId)); }
-    else { ({ error } = await supabase.from('live_sessions').insert(payload)); }
+    let newSessionId: string | null = null;
+    if (editingId) {
+      ({ error } = await supabase.from('live_sessions').update(payload).eq('id', editingId));
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from('live_sessions').insert(payload).select('id').single();
+      error = insertError;
+      newSessionId = (inserted as any)?.id ?? null;
+    }
     if (error) { setSubmitError(error.message); setIsSubmitting(false); return; }
-    toast.success(editingId ? 'Session updated.' : 'Session created.'); setModalOpen(false); setForm(initialForm); fetchSessions(); setIsSubmitting(false);
+
+    // Notify enrolled students when a new session is created
+    if (!editingId && newSessionId) {
+      const { data: enrollRows } = await supabase
+        .from('enrollments')
+        .select('student_id')
+        .eq('offering_id', form.offeringId)
+        .in('status', ['active', 'completed']);
+      const studentIds = ((enrollRows ?? []) as any[]).map((e: any) => e.student_id);
+      if (studentIds.length > 0) {
+        const scheduledDate = new Date(form.scheduledAt).toLocaleString('en-US', {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+        const offeringLabel = offerings.find(o => o.id === form.offeringId)?.label ?? '';
+        await supabase.from('notifications').insert(
+          studentIds.map((sid: string) => ({
+            user_id: sid,
+            type: 'live_session_reminder',
+            title: `New Live Session: ${form.title.trim()}`,
+            body: `A live session has been scheduled${offeringLabel ? ` for ${offeringLabel.split(' —')[0]}` : ''} on ${scheduledDate}. Platform: ${PLATFORM_LABELS[form.platform] ?? form.platform}.`,
+            link: `/dashboard/virtual-classroom/${newSessionId}`,
+          }))
+        );
+      }
+    }
+
+    toast.success(editingId ? 'Session updated.' : 'Session created.');
+    setModalOpen(false); setForm(initialForm); fetchSessions(); setIsSubmitting(false);
   };
 
   const handleDelete = async () => {
@@ -249,7 +286,8 @@ export default function InstructorLiveSessionsPage() {
                     <td className="px-5 py-3 text-sm text-gray-600">{s.durationMins} min</td>
                     <td className="px-5 py-3"><span className={`text-sm font-medium capitalize ${STATUS_COLORS[s.status] ?? 'text-gray-500'}`}>{s.status}</span></td>
                     <td className="px-5 py-3"><div className="flex items-center gap-2">
-                      {s.joinUrl && <a href={s.joinUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900" title="Join"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg></a>}
+                      <button type="button" onClick={() => router.push(`/instructor/virtual-classroom/${s.id}`)} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition" title="Enter Classroom"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" /></svg>Classroom</button>
+                      {s.joinUrl && <a href={s.joinUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900" title="Join Meeting"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg></a>}
                       <button type="button" onClick={() => openEditModal(s)} className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900" title="Edit"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
                       <button type="button" onClick={() => setDeleteId(s.id)} className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-red-600" title="Delete"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                     </div></td>

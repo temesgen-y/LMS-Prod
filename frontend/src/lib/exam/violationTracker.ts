@@ -22,26 +22,41 @@ export interface ViolationTrackerConfig {
 }
 
 const RISK_POINTS: Record<string, { severity: Severity; points: number }> = {
+  // Browser / focus violations
   tab_switch:                { severity: 'medium',   points: 15 },
   window_blur:               { severity: 'low',      points: 5  },
   fullscreen_exit:           { severity: 'medium',   points: 20 },
-  copy_attempt:              { severity: 'high',     points: 25 },
-  paste_attempt:             { severity: 'high',     points: 25 },
-  right_click:               { severity: 'low',      points: 5  },
-  devtools_open:             { severity: 'critical', points: 40 },
-  no_face_detected:          { severity: 'high',     points: 30 },
-  multiple_faces:            { severity: 'critical', points: 35 },
-  print_attempt:             { severity: 'high',     points: 30 },
-  keyboard_shortcut:         { severity: 'medium',   points: 10 },
   visibility_hidden:         { severity: 'medium',   points: 15 },
-  identity_mismatch:         { severity: 'critical', points: 50 },
-  // New violation types
-  screenshot_attempt:        { severity: 'high',     points: 30 },
-  screen_recording_detected: { severity: 'critical', points: 45 },
-  clipboard_access:          { severity: 'medium',   points: 15 },
-  drag_attempt:              { severity: 'low',      points: 5  },
   new_tab_attempt:           { severity: 'medium',   points: 10 },
   window_close_attempt:      { severity: 'medium',   points: 10 },
+  browser_exit:              { severity: 'medium',   points: 20 },
+  // Copy/paste / clipboard
+  copy_attempt:              { severity: 'high',     points: 25 },
+  paste_attempt:             { severity: 'high',     points: 25 },
+  clipboard_access:          { severity: 'medium',   points: 15 },
+  drag_attempt:              { severity: 'low',      points: 5  },
+  keyboard_shortcut:         { severity: 'medium',   points: 10 },
+  // Input / interaction
+  right_click:               { severity: 'low',      points: 5  },
+  print_attempt:             { severity: 'high',     points: 30 },
+  screenshot_attempt:        { severity: 'high',     points: 30 },
+  screen_recording_detected: { severity: 'critical', points: 45 },
+  devtools_open:             { severity: 'critical', points: 40 },
+  // Face / camera AI flags
+  no_face_detected:          { severity: 'high',     points: 30 },
+  multiple_faces:            { severity: 'critical', points: 35 },
+  looking_away:              { severity: 'medium',   points: 20 },
+  phone_detected:            { severity: 'high',     points: 35 },
+  identity_mismatch:         { severity: 'critical', points: 50 },
+  // Audio
+  voice_detected:            { severity: 'medium',   points: 20 },
+  suspicious_noise:          { severity: 'medium',   points: 20 },
+  // Mouse / activity
+  unusual_mouse:             { severity: 'low',      points: 10 },
+  long_inactivity:           { severity: 'medium',   points: 15 },
+  // Environment
+  external_display:          { severity: 'medium',   points: 20 },
+  remote_software_detected:  { severity: 'critical', points: 45 },
 };
 
 export class ViolationTracker {

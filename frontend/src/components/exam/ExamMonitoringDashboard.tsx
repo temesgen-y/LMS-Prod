@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,31 +64,46 @@ type DashboardData = {
 // ─── Violation metadata ───────────────────────────────────────────────────────
 
 const V_META: Record<string, { label: string; icon: string }> = {
-  tab_switch:               { label: 'Tab Switch',          icon: '↔️'  },
-  visibility_hidden:        { label: 'Page Hidden',         icon: '🙈'  },
-  window_blur:              { label: 'Window Blur',         icon: '👁️'  },
-  fullscreen_exit:          { label: 'Fullscreen Exit',     icon: '⛶'   },
-  copy_attempt:             { label: 'Copy Attempt',        icon: '📋'  },
-  paste_attempt:            { label: 'Paste Attempt',       icon: '📋'  },
-  right_click:              { label: 'Right Click',         icon: '🖱️'  },
-  keyboard_shortcut:        { label: 'Keyboard Shortcut',   icon: '⌨️'  },
-  devtools_open:            { label: 'DevTools Opened',     icon: '🔧'  },
-  print_attempt:            { label: 'Print Attempt',       icon: '🖨️'  },
-  no_face:                  { label: 'No Face Detected',    icon: '👤'  },
-  no_face_detected:         { label: 'No Face Detected',    icon: '👤'  },
-  multiple_faces:           { label: 'Multiple Faces',      icon: '👥'  },
-  looking_away:             { label: 'Looking Away',        icon: '👀'  },
-  phone_detected:           { label: 'Phone Detected',      icon: '📱'  },
-  voice_detected:           { label: 'Voice Detected',      icon: '🎤'  },
-  suspicious_movement:      { label: 'Suspicious Movement', icon: '🚶'  },
-  screen_share_detected:    { label: 'Screen Sharing',      icon: '🖥️'  },
-  external_display:         { label: 'External Display',    icon: '📺'  },
-  remote_software_detected: { label: 'Remote Software',     icon: '🔒'  },
-  ip_change:                { label: 'IP Changed',          icon: '🌐'  },
-  multiple_sessions:        { label: 'Multiple Sessions',   icon: '🔁'  },
-  disconnect:               { label: 'Disconnected',        icon: '🔌'  },
-  time_manipulation:        { label: 'Time Manipulation',   icon: '⏱️'  },
-  clipboard_access:         { label: 'Clipboard Access',    icon: '📋'  },
+  // Browser / focus
+  tab_switch:               { label: 'Tab Switch',           icon: '↔️'  },
+  visibility_hidden:        { label: 'Page Hidden',          icon: '🙈'  },
+  window_blur:              { label: 'Window Blur',          icon: '👁️'  },
+  fullscreen_exit:          { label: 'Fullscreen Exit',      icon: '⛶'   },
+  browser_exit:             { label: 'Browser Exit',         icon: '🚪'  },
+  new_tab_attempt:          { label: 'New Tab Attempt',      icon: '🗂️'  },
+  window_close_attempt:     { label: 'Close Attempt',        icon: '✖️'  },
+  // Copy / input
+  copy_attempt:             { label: 'Copy Attempt',         icon: '📋'  },
+  paste_attempt:            { label: 'Paste Attempt',        icon: '📋'  },
+  clipboard_access:         { label: 'Clipboard Access',     icon: '📋'  },
+  drag_attempt:             { label: 'Drag Attempt',         icon: '🤚'  },
+  right_click:              { label: 'Right Click',          icon: '🖱️'  },
+  keyboard_shortcut:        { label: 'Keyboard Shortcut',    icon: '⌨️'  },
+  print_attempt:            { label: 'Print Attempt',        icon: '🖨️'  },
+  screenshot_attempt:       { label: 'Screenshot Attempt',   icon: '📸'  },
+  screen_recording_detected:{ label: 'Screen Recording',     icon: '🎥'  },
+  devtools_open:            { label: 'DevTools Opened',      icon: '🔧'  },
+  // Camera / face AI
+  no_face:                  { label: 'No Face Detected',     icon: '👤'  },
+  no_face_detected:         { label: 'No Face Detected',     icon: '👤'  },
+  multiple_faces:           { label: 'Multiple Faces',       icon: '👥'  },
+  looking_away:             { label: 'Looking Away',         icon: '👀'  },
+  phone_detected:           { label: 'Phone Detected',       icon: '📱'  },
+  identity_mismatch:        { label: 'Identity Mismatch',    icon: '🆔'  },
+  // Audio
+  voice_detected:           { label: 'Suspicious Noise',     icon: '🎤'  },
+  suspicious_noise:         { label: 'Suspicious Noise',     icon: '🎤'  },
+  // Mouse / activity
+  unusual_mouse:            { label: 'Unusual Mouse Pattern',icon: '🖱️'  },
+  long_inactivity:          { label: 'Long Inactivity',      icon: '💤'  },
+  // Environment
+  screen_share_detected:    { label: 'Screen Sharing',       icon: '🖥️'  },
+  external_display:         { label: 'External Display',     icon: '📺'  },
+  remote_software_detected: { label: 'Remote Software',      icon: '🔒'  },
+  ip_change:                { label: 'IP Changed',           icon: '🌐'  },
+  multiple_sessions:        { label: 'Multiple Sessions',    icon: '🔁'  },
+  disconnect:               { label: 'Disconnected',         icon: '🔌'  },
+  time_manipulation:        { label: 'Time Manipulation',    icon: '⏱️'  },
 };
 
 function vMeta(type: string) {
@@ -194,6 +210,46 @@ export default function ExamMonitoringDashboard({ linkBase = '/instructor' }: Pr
     setLoading(false);
     setCountdown(15);
   }, []);
+
+  // Supabase Realtime: re-fetch + show a toast whenever a new violation row arrives.
+  // Requires Realtime enabled on exam_violations in the Supabase dashboard (Replication tab).
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('exam_violations_live')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'exam_violations' },
+        (payload: { new: Record<string, unknown> }) => {
+          const v = payload.new as {
+            violation_type: string;
+            severity: string;
+            student_id: string;
+          };
+          const meta = V_META[v.violation_type] ?? { label: v.violation_type.replace(/_/g, ' '), icon: '⚠️' };
+
+          // Surface critical and high violations as toasts immediately
+          if (v.severity === 'critical') {
+            toast.error(`🚨 Critical: ${meta.icon} ${meta.label}`, {
+              description: 'A student triggered a critical violation.',
+              duration: 8000,
+            });
+          } else if (v.severity === 'high') {
+            toast.warning(`${meta.icon} ${meta.label}`, {
+              description: 'High-severity exam violation detected.',
+              duration: 5000,
+            });
+          }
+
+          // Refresh dashboard data to reflect the new violation
+          fetchData();
+          setCountdown(15);
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchData]);
 
   useEffect(() => {
     fetchData();

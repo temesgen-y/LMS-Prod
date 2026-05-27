@@ -26,6 +26,7 @@ const navItems = [
   { href: '/admin/students', label: 'Students', icon: 'students' },
   { href: '/admin/instructors', label: 'Instructors', icon: 'instructors' },
   { href: '/admin/admins', label: 'Admins', icon: 'admins' },
+  { href: '/admin/user-management', label: 'User Management', icon: 'user-management' },
   { href: '/admin/courses', label: 'Courses', icon: 'courses' },
   { href: '/admin/course-offerings', label: 'Course Offerings', icon: 'course-offerings' },
   { href: '/admin/course-instructors', label: 'Course Instructors', icon: 'course-instructors' },
@@ -33,8 +34,10 @@ const navItems = [
   { href: '/admin/admin-profiles', label: 'Admin Profiles', icon: 'admin-profiles' },
   { href: '/admin/announcements', label: 'Announcements', icon: 'announcements' },
   { href: '/admin/institution-settings', label: 'Institution Settings', icon: 'institution-settings' },
+  { href: '/admin/virtual-classroom', label: 'Virtual Classroom', icon: 'virtual-classroom' },
   { href: '/admin/reports', label: 'Reports', icon: 'reports' },
   { href: '/admin/settings', label: 'Settings', icon: 'settings' },
+  { href: '/admin/backup-management', label: 'Backup Management', icon: 'backup' },
 ];
 
 const staffItems = [
@@ -181,6 +184,24 @@ function Icon({ name, className }: { name: string; className?: string }) {
         <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12h4M20 10v4" />
+        </svg>
+      );
+    case 'virtual-classroom':
+      return (
+        <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+        </svg>
+      );
+    case 'user-management':
+      return (
+        <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      );
+    case 'backup':
+      return (
+        <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
         </svg>
       );
     case 'change-password':

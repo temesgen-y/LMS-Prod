@@ -86,14 +86,35 @@ function RichContent({ html }: { html: string }) {
   );
 }
 
-function ScormContent({ url, title }: { url: string; title: string }) {
+function ScormContent({ offeringId, lessonId, title, progress }: {
+  offeringId: string; lessonId: string; title: string; progress: ProgressStatus;
+}) {
   return (
-    <iframe
-      src={url}
-      className="w-full rounded-lg border border-gray-200"
-      style={{ height: '80vh' }}
-      title={title}
-    />
+    <div className="border border-purple-200 rounded-xl p-10 bg-purple-50 text-center space-y-4">
+      <div className="w-16 h-16 rounded-2xl bg-purple-100 flex items-center justify-center mx-auto">
+        <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      </div>
+      <div>
+        <p className="font-semibold text-gray-900">{title}</p>
+        <p className="text-sm text-gray-500 mt-1">Interactive SCORM package</p>
+      </div>
+      {progress === 'completed' && (
+        <p className="text-sm font-medium text-green-600">✓ You have already completed this module</p>
+      )}
+      <a
+        href={`/dashboard/class/${offeringId}/lessons/${lessonId}/scorm-player`}
+        className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-[#4c1d95] text-white text-sm font-semibold hover:bg-[#5b21b6] transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        {progress === 'completed' ? 'Relaunch Module' : 'Launch Module'}
+      </a>
+      <p className="text-xs text-gray-400">Opens full-screen · Progress saved automatically</p>
+    </div>
   );
 }
 
@@ -333,7 +354,7 @@ export default function LessonDetailPage() {
             <LinkContent url={lesson.content_url} onOpen={() => markComplete()} />
           )}
           {lesson.type === 'scorm' && (
-            <ScormContent url={lesson.content_url} title={lesson.title} />
+            <ScormContent offeringId={offeringId} lessonId={lessonId} title={lesson.title} progress={progress} />
           )}
         </div>
       ) : (
@@ -366,26 +387,33 @@ export default function LessonDetailPage() {
           ) : <div />}
         </div>
 
-        {/* Mark Complete */}
-        <button
-          type="button"
-          onClick={() => markComplete()}
-          disabled={progress === 'completed' || markingComplete || !enrollmentId}
-          className={`flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
-            progress === 'completed'
-              ? 'bg-green-100 text-green-700 cursor-default'
-              : 'bg-[#4c1d95] text-white hover:bg-[#5b21b6] disabled:opacity-50'
-          }`}
-        >
-          {markingComplete ? (
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          ) : (
-            progress === 'completed' ? '✓ Completed' : 'Mark Complete'
-          )}
-        </button>
+        {/* Mark Complete — hidden for SCORM (auto-saved by SCORM API) */}
+        {lesson.type !== 'scorm' && (
+          <button
+            type="button"
+            onClick={() => markComplete()}
+            disabled={progress === 'completed' || markingComplete || !enrollmentId}
+            className={`flex-shrink-0 flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+              progress === 'completed'
+                ? 'bg-green-100 text-green-700 cursor-default'
+                : 'bg-[#4c1d95] text-white hover:bg-[#5b21b6] disabled:opacity-50'
+            }`}
+          >
+            {markingComplete ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : (
+              progress === 'completed' ? '✓ Completed' : 'Mark Complete'
+            )}
+          </button>
+        )}
+        {lesson.type === 'scorm' && progress === 'completed' && (
+          <span className="flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-semibold bg-green-100 text-green-700">
+            ✓ Completed
+          </span>
+        )}
 
         {/* Next */}
         <div className="flex-1 text-right">

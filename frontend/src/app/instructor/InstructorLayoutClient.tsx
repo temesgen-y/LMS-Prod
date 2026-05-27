@@ -46,6 +46,7 @@ function buildNavGroups(offeringId: string | null): NavGroup[] {
         { href: '/instructor/dashboard',      label: 'Home',           icon: 'home' },
         { href: '/instructor/course-modules', label: 'Course Content', icon: 'course-modules' },
         { href: '/instructor/live-sessions',  label: 'Live Sessions',  icon: 'live-sessions' },
+        { href: '/instructor/scorm',          label: 'SCORM Reports',  icon: 'scorm' },
         { href: '/instructor/assessments',    label: 'Assessments',    icon: 'assessments' },
         { href: '/instructor/question-bank',  label: 'Question Bank',  icon: 'question-bank' },
         { href: '/instructor/assignments',    label: 'Assignments',    icon: 'assignments' },
@@ -158,6 +159,12 @@ function NavIcon({ name }: { name: string }) {
       return (
         <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.869v6.262a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+      );
+    case 'scorm':
+      return (
+        <svg className={c} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       );
     case 'assessments':

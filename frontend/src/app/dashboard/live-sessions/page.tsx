@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
 type LiveSession = {
@@ -40,6 +41,7 @@ function formatTime(iso: string) {
 }
 
 export default function LiveSessionsPage() {
+  const router = useRouter();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading]   = useState(true);
   const [filter, setFilter]     = useState<'all' | 'upcoming' | 'completed'>('upcoming');
@@ -232,24 +234,20 @@ export default function LiveSessionsPage() {
                     </div>
 
                     {/* Action buttons */}
-                    <div className="flex gap-2 mt-3">
-                      {canJoin && (
-                        <a
-                          href={session.joinUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
-                            isLive
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-[#4c1d95] text-white hover:bg-[#3b1677]'
-                          }`}
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
-                          </svg>
-                          {isLive ? 'Join Now' : 'Join Session'}
-                        </a>
-                      )}
+                    <div className="flex gap-2 mt-3 flex-wrap">
+                      <button
+                        onClick={() => router.push(`/dashboard/virtual-classroom/${session.id}`)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${
+                          isLive
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-[#4c1d95] text-white hover:bg-[#3b1677]'
+                        }`}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+                        </svg>
+                        {isLive ? 'Enter Classroom' : session.status === 'completed' ? 'View Session' : 'Enter Classroom'}
+                      </button>
                       {session.recordingUrl && (
                         <a
                           href={session.recordingUrl}

@@ -317,16 +317,26 @@ export default function SecureExamShell({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [blockCopyPaste, blockKeyboardShortcuts, blockDevtools, blockPrint, blockScreenshots, tracker, warn]);
 
-  // ── beforeunload warning ───────────────────────────────────────────────────
+  // ── beforeunload / browser exit warning ──────────────────────────────────────
   useEffect(() => {
     if (!blockTabSwitch) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = 'Leaving this page will end your exam. Are you sure?';
-      tracker?.record('window_close_attempt', { trigger: 'beforeunload' });
+      tracker?.record('browser_exit', { trigger: 'beforeunload' });
+    };
+    // pagehide fires even when the browser is closed or tab is killed (unlike beforeunload)
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (!e.persisted) {
+        tracker?.flush();
+      }
     };
     window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onPageHide);
+    };
   }, [blockTabSwitch, tracker]);
 
   // ── DevTools detection (size heuristic) ───────────────────────────────────
