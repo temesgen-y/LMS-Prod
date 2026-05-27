@@ -1,79 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getUserRoleNames } from '@/lib/auth/get-user-roles';
-import { getHighestRole, type RoleName } from '@/types/auth';
+import { guardRoute } from '@/lib/security/rbac';
+import { writeAuditLog, requestMeta } from '@/lib/security/auditLog';
+import { validateCsrf } from '@/lib/security/csrf';
 
 /**
  * POST /api/admin/students/:id/reject
- * Admin-only. Runs the rejection flow via RPC:
- *   1. UPDATE users SET status = 'suspended'
- *   2. INSERT audit_logs
- * No student_profiles row is created.
- * Returns: { success: true, user_id }
+ * Admin or Registrar only.
  */
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const csrf = validateCsrf(request);
+    if (!csrf.ok) return csrf.response;
+
+    const guard = await guardRoute(request, ['ADMIN', 'REGISTRAR']);
+    if (!guard.ok) return guard.response;
+    const { appUserId: actorId } = guard.ctx;
+
     const { id: studentId } = await params;
-
-    const supabase = await createClient();
-    const { data: { user: authUser }, error: sessionError } = await supabase.auth.getUser();
-
-    if (sessionError || !authUser) {
-      return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
-    }
-
     const adminDb = createAdminClient();
-    const roleNames = await getUserRoleNames(adminDb, authUser.id);
-    const role = getHighestRole(roleNames as RoleName[]);
-    if (role !== 'ADMIN' && role !== 'REGISTRAR') {
-      return NextResponse.json({ error: 'Access denied.' }, { status: 403 });
-    }
 
-    // Get actor's public.users id (admin or registrar)
-    const { data: adminUser } = await adminDb
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', authUser.id)
-      .single();
-
-    if (!adminUser) {
-      return NextResponse.json({ error: 'User profile not found.' }, { status: 403 });
-    }
-
-    // Call the atomic RPC — wraps UPDATE users + INSERT audit_logs
     const { data: result, error: rpcError } = await adminDb.rpc('reject_student_registration', {
       p_student_id: studentId,
-      p_admin_id:   (adminUser as { id: string }).id,
+      p_admin_id:   actorId,
     });
 
     if (rpcError) {
       const msg = rpcError.message ?? '';
-
-      if (msg.includes('student_not_found')) {
-        return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
-      }
-      if (msg.includes('not_a_student')) {
-        return NextResponse.json({ error: 'The target user is not a student.' }, { status: 422 });
-      }
-      if (msg.includes('not_pending')) {
-        return NextResponse.json(
-          { error: 'Student has already been approved or rejected.' },
-          { status: 409 }
-        );
-      }
-
+      if (msg.includes('student_not_found')) return NextResponse.json({ error: 'Student not found.' }, { status: 404 });
+      if (msg.includes('not_a_student'))     return NextResponse.json({ error: 'The target user is not a student.' }, { status: 422 });
+      if (msg.includes('not_pending'))       return NextResponse.json({ error: 'Student has already been approved or rejected.' }, { status: 409 });
       return NextResponse.json({ error: msg || 'Rejection failed.' }, { status: 500 });
     }
 
     const { user_id } = result as { user_id: string };
 
+    const { ipAddress, userAgent } = requestMeta(request);
+    await writeAuditLog({
+      actorId,
+      action:     'student_rejected',
+      targetType: 'users',
+      targetId:   studentId,
+      ipAddress,
+      userAgent,
+    });
+
     return NextResponse.json({ success: true, user_id });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 });
   }
 }

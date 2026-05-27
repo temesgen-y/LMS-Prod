@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getUserRoleNames } from '@/lib/auth/get-user-roles';
-import { getHighestRole, type RoleName } from '@/types/auth';
+import { guardRoute } from '@/lib/security/rbac';
+import { writeAuditLog, requestMeta } from '@/lib/security/auditLog';
+import { validateCsrf } from '@/lib/security/csrf';
 
 export type InviteInstructorBody = {
   firstName: string;
@@ -60,43 +60,16 @@ function validateBody(body: unknown): { ok: true; data: InviteInstructorBody } |
  */
 export async function POST(request: NextRequest) {
   try {
-    // Prefer the Bearer token from the Authorization header (more reliable in
-    // Next.js 15 Route Handlers than cookie-based session reading). Fall back
-    // to cookie-based auth if no header is present.
+    // CSRF validation
+    const csrf = validateCsrf(request);
+    if (!csrf.ok) return csrf.response;
+
+    // Auth + RBAC via unified guard
+    const guard = await guardRoute(request, ['ADMIN']);
+    if (!guard.ok) return guard.response;
+    const { appUserId: createdByUserId } = guard.ctx;
+
     const admin = createAdminClient();
-    let authUser: import('@supabase/supabase-js').User | null = null;
-
-    const authHeader = request.headers.get('Authorization');
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-
-    if (bearerToken) {
-      const { data, error } = await admin.auth.getUser(bearerToken);
-      if (error || !data.user) {
-        return NextResponse.json({ error: 'You must be signed in to perform this action.' }, { status: 401 });
-      }
-      authUser = data.user;
-    } else {
-      // Fallback: cookie-based auth
-      const supabase = await createClient();
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
-        return NextResponse.json({ error: 'You must be signed in to perform this action.' }, { status: 401 });
-      }
-      authUser = data.user;
-    }
-
-    const roleNames = await getUserRoleNames(admin, authUser.id);
-    const role = getHighestRole(roleNames as RoleName[]);
-    if (role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Only admins can invite instructors.' }, { status: 403 });
-    }
-
-    const { data: appUser } = await admin
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', authUser.id)
-      .single();
-    const createdByUserId = (appUser as { id: string } | null)?.id ?? null;
 
     const body = await request.json();
     const validated = validateBody(body);
@@ -276,6 +249,17 @@ export async function POST(request: NextRequest) {
       // The admin can copy setupPasswordUrl from the response and share it manually.
       console.error('[invite] Failed to store invite token:', tokenError.message, tokenError.code);
     }
+
+    const { ipAddress, userAgent } = requestMeta(request);
+    await writeAuditLog({
+      actorId:    createdByUserId,
+      action:     'instructor_invited',
+      targetType: 'users',
+      targetId:   userId,
+      details:    { email: data.email, department: data.department },
+      ipAddress,
+      userAgent,
+    });
 
     return NextResponse.json({
       success: true,

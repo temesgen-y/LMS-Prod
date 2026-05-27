@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { getUserRoleNames } from '@/lib/auth/get-user-roles';
-import { getHighestRole, type RoleName } from '@/types/auth';
+import { guardRoute } from '@/lib/security/rbac';
+import { writeAuditLog, requestMeta } from '@/lib/security/auditLog';
+import { validateCsrf } from '@/lib/security/csrf';
 
 /**
  * POST /api/admin/instructors/delete
@@ -14,31 +14,12 @@ import { getHighestRole, type RoleName } from '@/types/auth';
  */
 export async function POST(request: NextRequest) {
   try {
-    const admin = createAdminClient();
-    let authUser: import('@supabase/supabase-js').User | null = null;
+    const csrf = validateCsrf(request);
+    if (!csrf.ok) return csrf.response;
 
-    const authHeader = request.headers.get('Authorization');
-    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-
-    if (bearerToken) {
-      const { data, error } = await admin.auth.getUser(bearerToken);
-      if (error || !data.user) {
-        return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
-      }
-      authUser = data.user;
-    } else {
-      const supabase = await createClient();
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
-        return NextResponse.json({ error: 'You must be signed in.' }, { status: 401 });
-      }
-      authUser = data.user;
-    }
-
-    const roleNames = await getUserRoleNames(admin, authUser.id);
-    if (getHighestRole(roleNames as RoleName[]) !== 'ADMIN') {
-      return NextResponse.json({ error: 'Only admins can delete instructors.' }, { status: 403 });
-    }
+    const guard = await guardRoute(request, ['ADMIN']);
+    if (!guard.ok) return guard.response;
+    const { appUserId: actorId } = guard.ctx;
 
     const body = await request.json();
     const instructorUserId = typeof body.instructorUserId === 'string' ? body.instructorUserId.trim() : '';
@@ -46,10 +27,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'instructorUserId is required.' }, { status: 400 });
     }
 
-    // Look up the instructor's public.users row to get auth_user_id
+    const admin = createAdminClient();
+
     const { data: targetUser, error: lookupError } = await admin
       .from('users')
-      .select('id, auth_user_id, role')
+      .select('id, auth_user_id, role, email')
       .eq('id', instructorUserId)
       .maybeSingle();
 
@@ -57,44 +39,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Instructor not found.' }, { status: 404 });
     }
 
-    const target = targetUser as { id: string; auth_user_id: string | null; role: string };
+    const target = targetUser as { id: string; auth_user_id: string | null; role: string; email: string };
 
     if (target.role !== 'instructor') {
       return NextResponse.json({ error: 'User is not an instructor.' }, { status: 400 });
     }
 
-    // Prevent admin from deleting themselves
-    const { data: callerUser } = await admin
-      .from('users')
-      .select('id')
-      .eq('auth_user_id', authUser.id)
-      .maybeSingle();
-    if ((callerUser as { id: string } | null)?.id === instructorUserId) {
+    if (actorId === instructorUserId) {
       return NextResponse.json({ error: 'You cannot delete your own account.' }, { status: 400 });
     }
 
     // 1. Delete instructor_profiles
     await admin.from('instructor_profiles').delete().eq('user_id', instructorUserId);
 
-    // 2. Invalidate any pending invite tokens for this user
-    const { data: inviteEmail } = await admin
-      .from('users')
-      .select('email')
-      .eq('id', instructorUserId)
-      .maybeSingle();
-    if (inviteEmail) {
-      await admin
-        .from('instructor_invites')
-        .update({ used: true, used_at: new Date().toISOString() })
-        .eq('email', (inviteEmail as { email: string }).email)
-        .eq('used', false);
-    }
+    // 2. Invalidate any pending invite tokens
+    await admin
+      .from('instructor_invites')
+      .update({ used: true, used_at: new Date().toISOString() })
+      .eq('email', target.email)
+      .eq('used', false);
 
     // 3. Delete public.users row
     const { error: userDeleteError } = await admin
-      .from('users')
-      .delete()
-      .eq('id', instructorUserId);
+      .from('users').delete().eq('id', instructorUserId);
 
     if (userDeleteError) {
       return NextResponse.json(
@@ -103,13 +70,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Delete Supabase Auth user (best-effort — don't fail if this errors)
+    // 4. Delete Supabase Auth user (best-effort)
     if (target.auth_user_id) {
-      const { error: authDeleteError } = await admin.auth.admin.deleteUser(target.auth_user_id);
-      if (authDeleteError) {
-        console.error('[delete-instructor] Auth user delete failed:', authDeleteError.message);
-      }
+      const { error: authErr } = await admin.auth.admin.deleteUser(target.auth_user_id);
+      if (authErr) console.error('[delete-instructor] Auth user delete failed:', authErr.message);
     }
+
+    const { ipAddress, userAgent } = requestMeta(request);
+    await writeAuditLog({
+      actorId,
+      action:     'instructor_deleted',
+      targetType: 'users',
+      targetId:   instructorUserId,
+      details:    { email: target.email },
+      ipAddress,
+      userAgent,
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {
