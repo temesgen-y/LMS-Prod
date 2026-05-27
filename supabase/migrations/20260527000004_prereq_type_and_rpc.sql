@@ -57,6 +57,8 @@ $$ LANGUAGE sql IMMUTABLE STRICT;
 -- Returns one row per prerequisite for the course offering p_offering_id,
 -- indicating whether student p_student_id has met each one.
 
+DROP FUNCTION IF EXISTS public.check_student_prerequisites(UUID, UUID);
+
 CREATE OR REPLACE FUNCTION public.check_student_prerequisites(
   p_student_id UUID,
   p_offering_id UUID
