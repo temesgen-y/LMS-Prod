@@ -39,7 +39,10 @@ type Attendance = {
   joinedAt: string | null;
   leftAt: string | null;
   durationMins: number | null;
+  source: string;
 };
+
+type RsvpRow = { studentId: string; status: 'yes' | 'no' | 'maybe' };
 
 const PLATFORM_LABELS: Record<string, string> = {
   zoom: 'Zoom',
@@ -94,6 +97,7 @@ export default function InstructorVirtualClassroomPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [rsvps, setRsvps] = useState<RsvpRow[]>([]);
   const [activeTab, setActiveTab] = useState<'attendees' | 'details' | 'recording'>('attendees');
 
   const [statusLoading, setStatusLoading] = useState(false);
@@ -102,6 +106,8 @@ export default function InstructorVirtualClassroomPage() {
   const [markingStudentId, setMarkingStudentId] = useState<string | null>(null);
 
   const attendanceMap = Object.fromEntries(attendance.map(a => [a.studentId, a]));
+  const rsvpMap = Object.fromEntries(rsvps.map(r => [r.studentId, r.status]));
+  const rsvpYesCount = rsvps.filter(r => r.status === 'yes').length;
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
@@ -190,7 +196,7 @@ export default function InstructorVirtualClassroomPage() {
     // Attendance records
     const { data: attRows } = await supabase
       .from('live_session_attendance')
-      .select('student_id, joined_at, left_at, duration_mins')
+      .select('student_id, joined_at, left_at, duration_mins, source')
       .eq('live_session_id', sessionId);
 
     setAttendance(
@@ -199,8 +205,17 @@ export default function InstructorVirtualClassroomPage() {
         joinedAt: a.joined_at,
         leftAt: a.left_at,
         durationMins: a.duration_mins,
+        source: a.source ?? 'manual',
       }))
     );
+
+    // RSVP counts
+    const { data: rsvpRows } = await supabase
+      .from('live_session_rsvps')
+      .select('student_id, rsvp_status')
+      .eq('live_session_id', sessionId);
+
+    setRsvps(((rsvpRows ?? []) as any[]).map((r: any) => ({ studentId: r.student_id, status: r.rsvp_status })));
 
     setLoading(false);
   }, [sessionId]);
@@ -249,13 +264,13 @@ export default function InstructorVirtualClassroomPage() {
     if (present) {
       const now = new Date().toISOString();
       await supabase.from('live_session_attendance').upsert(
-        { live_session_id: sessionId, student_id: studentId, joined_at: now },
+        { live_session_id: sessionId, student_id: studentId, joined_at: now, source: 'manual' },
         { onConflict: 'live_session_id,student_id' }
       );
       setAttendance(prev => {
         const existing = prev.find(a => a.studentId === studentId);
         if (existing) return prev.map(a => a.studentId === studentId ? { ...a, joinedAt: now } : a);
-        return [...prev, { studentId, joinedAt: now, leftAt: null, durationMins: null }];
+        return [...prev, { studentId, joinedAt: now, leftAt: null, durationMins: null, source: 'manual' }];
       });
       toast.success('Attendance marked.');
     } else {
@@ -392,11 +407,11 @@ export default function InstructorVirtualClassroomPage() {
       </div>
 
       {/* Stats bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         {[
-          { label: 'Enrolled', value: students.length, color: 'text-gray-900', bg: 'bg-white' },
-          { label: 'Attended', value: attendedCount, color: 'text-green-700', bg: 'bg-green-50 border-green-200' },
-          { label: 'Absent', value: students.length - attendedCount, color: 'text-red-600', bg: 'bg-red-50 border-red-200' },
+          { label: 'Enrolled',     value: students.length, color: 'text-gray-900', bg: 'bg-white' },
+          { label: 'RSVP Yes',     value: rsvpYesCount, color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+          { label: 'Attended',     value: attendedCount, color: 'text-green-700', bg: 'bg-green-50 border-green-200' },
           { label: 'Attendance %', value: students.length > 0 ? `${Math.round((attendedCount / students.length) * 100)}%` : '—', color: 'text-primary', bg: 'bg-purple-50 border-purple-200' },
         ].map(stat => (
           <div key={stat.label} className={`rounded-xl border p-4 text-center ${stat.bg}`}>
@@ -428,6 +443,7 @@ export default function InstructorVirtualClassroomPage() {
                 <tr className="border-b border-gray-100 bg-gray-50/80">
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Student</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Student No.</th>
+                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">RSVP</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined At</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Duration</th>
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
@@ -439,11 +455,12 @@ export default function InstructorVirtualClassroomPage() {
               <tbody className="divide-y divide-gray-100">
                 {students.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-10 text-center text-gray-400 text-sm">No enrolled students.</td>
+                    <td colSpan={7} className="px-5 py-10 text-center text-gray-400 text-sm">No enrolled students.</td>
                   </tr>
                 ) : students.map(st => {
                   const att = attendanceMap[st.id];
                   const attended = !!att?.joinedAt;
+                  const studentRsvp = rsvpMap[st.id] ?? null;
                   return (
                     <tr key={st.id} className="hover:bg-gray-50/50">
                       <td className="px-5 py-3">
@@ -458,20 +475,26 @@ export default function InstructorVirtualClassroomPage() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-gray-500 font-mono text-xs">{st.studentNo || '—'}</td>
+                      <td className="px-5 py-3">
+                        {studentRsvp === 'yes'   && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">✓ Yes</span>}
+                        {studentRsvp === 'maybe' && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">? Maybe</span>}
+                        {studentRsvp === 'no'    && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-600 border border-red-200">✕ No</span>}
+                        {!studentRsvp           && <span className="text-xs text-gray-300">—</span>}
+                      </td>
                       <td className="px-5 py-3 text-gray-500">{fmt(att?.joinedAt ?? null)}</td>
                       <td className="px-5 py-3 text-gray-500">{att?.durationMins ? `${att.durationMins} min` : '—'}</td>
                       <td className="px-5 py-3">
                         {attended ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Present
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                              Present
+                            </span>
+                            {att?.source === 'zoom_webhook'   && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600">Zoom</span>}
+                            {att?.source === 'self_reported'  && <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-600">Self</span>}
+                          </div>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
-                            Absent
-                          </span>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">Absent</span>
                         )}
                       </td>
                       {!isCompleted && (
