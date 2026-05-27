@@ -1,57 +1,31 @@
 /**
- * csrf.ts — Anti-CSRF protection for Next.js Route Handlers
+ * csrf.ts — Anti-CSRF protection (Edge Runtime compatible)
+ *
+ * Uses the Web Crypto API (globalThis.crypto) which works in:
+ *   - Next.js Edge Runtime (middleware)
+ *   - Node.js 18+ (Route Handlers)
+ *   - Browsers
  *
  * Strategy: Double-Submit Cookie Pattern + Origin validation
  *
- * 1. Origin/Referer check — rejects requests whose Origin header doesn't match
- *    the app's own origin (blocks cross-site form POSTs from other domains).
- *
- * 2. CSRF token — a signed, one-time token stored in an httpOnly cookie and
- *    submitted as an `X-CSRF-Token` request header. The server validates both
- *    match before processing any state-changing request.
- *
- * Usage in API routes:
- *   const csrf = validateCsrf(request);
- *   if (!csrf.ok) return csrf.response;
- *
- * Usage in client components:
- *   const token = await getCsrfToken();  // fetches /api/csrf-token
- *   fetch('/api/...', { headers: { 'X-CSRF-Token': token } });
+ * 1. A random token is set in a JavaScript-readable __csrf cookie by middleware.
+ * 2. The client reads the cookie and sends it as X-CSRF-Token on every mutation.
+ * 3. The server validates cookie === header (attacker on another origin can't
+ *    read the cookie, so they can't forge the matching header value).
+ * 4. Origin/Referer header is also validated as a second layer.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 
-const CSRF_COOKIE  = '__csrf';
-const CSRF_HEADER  = 'x-csrf-token';
-const TOKEN_BYTES  = 32;
-const HMAC_SECRET  = process.env.CSRF_SECRET ?? process.env.ENCRYPTION_SECRET ?? 'csrf-fallback-dev-only';
+const CSRF_COOKIE = '__csrf';
+const CSRF_HEADER = 'x-csrf-token';
 
-// ─── Token generation & verification ─────────────────────────────────────────
+// ─── Token generation ─────────────────────────────────────────────────────────
 
-function sign(token: string): string {
-  return crypto.createHmac('sha256', HMAC_SECRET).update(token).digest('hex');
-}
-
-/** Generate a new CSRF token. Returns `raw.signature`. */
+/** Generate a random CSRF token using the Web Crypto API (Edge-safe). */
 export function generateCsrfToken(): string {
-  const raw = crypto.randomBytes(TOKEN_BYTES).toString('hex');
-  return `${raw}.${sign(raw)}`;
-}
-
-/** Verify a CSRF token string. */
-function verifyCsrfToken(token: string): boolean {
-  const dot = token.lastIndexOf('.');
-  if (dot === -1) return false;
-  const raw = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const expected = sign(raw);
-  // Constant-time comparison to prevent timing attacks
-  try {
-    return crypto.timingSafeEqual(Buffer.from(sig, 'hex'), Buffer.from(expected, 'hex'));
-  } catch {
-    return false;
-  }
+  // crypto.randomUUID() is available in Edge Runtime, Node 14.17+, and browsers
+  return globalThis.crypto.randomUUID();
 }
 
 // ─── Origin check ─────────────────────────────────────────────────────────────
@@ -70,11 +44,10 @@ function checkOrigin(request: NextRequest): boolean {
   const referer = request.headers.get('referer');
   const allowed = getAllowedOrigins();
 
-  // Same-origin requests from Next.js Server Actions / Route Handlers
-  // may not send an Origin header — allow if no origin header at all on non-browser context
+  // No Origin/Referer — allow (server-to-server, curl, same-origin fetch in some browsers)
   if (!origin && !referer) return true;
 
-  if (origin) return allowed.some(o => origin === o || origin.startsWith(o));
+  if (origin)  return allowed.some(o => origin === o || origin.startsWith(o));
   if (referer) return allowed.some(o => referer.startsWith(o));
 
   return false;
@@ -88,65 +61,64 @@ type CsrfResult =
 
 /**
  * Validate CSRF for a state-changing request (POST, PUT, PATCH, DELETE).
- * Skips validation for GET/HEAD/OPTIONS (safe methods).
+ * Safe methods (GET, HEAD, OPTIONS) pass through unchanged.
  */
 export function validateCsrf(request: NextRequest): CsrfResult {
   const method = request.method.toUpperCase();
-
-  // Safe methods don't need CSRF protection
   if (['GET', 'HEAD', 'OPTIONS'].includes(method)) return { ok: true };
 
   // 1. Origin check
   if (!checkOrigin(request)) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { error: 'Request origin not allowed.' },
-        { status: 403 }
-      ),
+      response: NextResponse.json({ error: 'Request origin not allowed.' }, { status: 403 }),
     };
   }
 
-  // 2. Token check (cookie vs. header)
-  const cookieToken  = request.cookies.get(CSRF_COOKIE)?.value ?? '';
-  const headerToken  = request.headers.get(CSRF_HEADER) ?? '';
+  // 2. Double-submit cookie check: cookie value must equal header value
+  const cookieToken = request.cookies.get(CSRF_COOKIE)?.value ?? '';
+  const headerToken = request.headers.get(CSRF_HEADER) ?? '';
 
   if (!cookieToken || !headerToken) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { error: 'CSRF token missing.' },
-        { status: 403 }
-      ),
+      response: NextResponse.json({ error: 'CSRF token missing.' }, { status: 403 }),
     };
   }
 
-  if (cookieToken !== headerToken || !verifyCsrfToken(cookieToken)) {
+  // Constant-time comparison to prevent timing attacks
+  if (!timingSafeEqual(cookieToken, headerToken)) {
     return {
       ok: false,
-      response: NextResponse.json(
-        { error: 'CSRF token invalid.' },
-        { status: 403 }
-      ),
+      response: NextResponse.json({ error: 'CSRF token invalid.' }, { status: 403 }),
     };
   }
 
   return { ok: true };
 }
 
+/** Constant-time string comparison (prevents timing-based token guessing). */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 /**
  * Attach a fresh CSRF token cookie to a response.
- * Call this on the response that delivers your HTML shell (layout, not API).
- * The client reads the cookie value and sends it as X-CSRF-Token on mutations.
+ * The client reads the cookie and sends it as X-CSRF-Token on mutations.
  */
 export function attachCsrfCookie(response: NextResponse): NextResponse {
   const token = generateCsrfToken();
   response.cookies.set(CSRF_COOKIE, token, {
-    httpOnly: false,      // must be readable by JS so the client can copy it to a header
+    httpOnly: false,     // must be readable by JS to copy into X-CSRF-Token header
     sameSite: 'strict',
     secure:   process.env.NODE_ENV === 'production',
     path:     '/',
-    maxAge:   60 * 60 * 8, // 8 hours
+    maxAge:   60 * 60 * 8,
   });
   return response;
 }

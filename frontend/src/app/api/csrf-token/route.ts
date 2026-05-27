@@ -3,7 +3,6 @@ import { generateCsrfToken } from '@/lib/security/csrf';
 
 // GET /api/csrf-token
 // Returns a fresh CSRF token and sets it as a cookie.
-// Clients call this once on mount to obtain a token for subsequent mutations.
 export async function GET(request: NextRequest) {
   const existing = request.cookies.get('__csrf')?.value;
   const token = existing ?? generateCsrfToken();
