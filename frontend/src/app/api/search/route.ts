@@ -272,5 +272,113 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  // ── REGISTRAR ────────────────────────────────────────────────────────────
+  if (role === 'registrar') {
+    // Students
+    const { data: students } = await supabase
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .eq('role', 'student')
+      .or(`first_name.ilike.${pat},last_name.ilike.${pat},email.ilike.${pat}`)
+      .limit(LIMIT);
+    (students ?? []).forEach((s: any) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(' ') || s.email;
+      results.push({ id: s.id, title: name, subtitle: s.email ?? 'Student', category: 'student', link: '/registrar/students' });
+    });
+
+    // Courses
+    const { data: courses } = await supabase
+      .from('courses').select('id, title, code').or(`title.ilike.${pat},code.ilike.${pat}`).limit(LIMIT);
+    (courses ?? []).forEach((c: any) => {
+      results.push({ id: c.id, title: c.title, subtitle: (c.code ?? '').toUpperCase(), category: 'course', link: '/registrar/enrollments' });
+    });
+
+    // Announcements
+    const { data: anncs } = await supabase
+      .from('announcements').select('id, title').ilike('title', pat).limit(LIMIT);
+    (anncs ?? []).forEach((a: any) => {
+      results.push({ id: a.id, title: a.title, subtitle: 'Announcement', category: 'announcement', link: '/registrar/dashboard' });
+    });
+  }
+
+  // ── DEPARTMENT HEAD ───────────────────────────────────────────────────────
+  if (role === 'department_head') {
+    // Instructors in their department
+    const { data: instructors } = await supabase
+      .from('users').select('id, first_name, last_name, email').eq('role', 'instructor')
+      .or(`first_name.ilike.${pat},last_name.ilike.${pat},email.ilike.${pat}`).limit(LIMIT);
+    (instructors ?? []).forEach((u: any) => {
+      const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
+      results.push({ id: u.id, title: name, subtitle: u.email ?? 'Instructor', category: 'instructor', link: '/dept-head/instructors' });
+    });
+
+    // Courses
+    const { data: courses } = await supabase
+      .from('courses').select('id, title, code').or(`title.ilike.${pat},code.ilike.${pat}`).limit(LIMIT);
+    (courses ?? []).forEach((c: any) => {
+      results.push({ id: c.id, title: c.title, subtitle: (c.code ?? '').toUpperCase(), category: 'course', link: '/dept-head/courses' });
+    });
+
+    // Assessments
+    const { data: assmnts } = await supabase
+      .from('assessments').select('id, title, type').ilike('title', pat).limit(LIMIT);
+    (assmnts ?? []).forEach((a: any) => {
+      results.push({ id: a.id, title: a.title, subtitle: a.type ?? 'Assessment', category: 'assessment', link: '/dept-head/assessments' });
+    });
+
+    // Students
+    const { data: students } = await supabase
+      .from('users').select('id, first_name, last_name, email').eq('role', 'student')
+      .or(`first_name.ilike.${pat},last_name.ilike.${pat},email.ilike.${pat}`).limit(LIMIT);
+    (students ?? []).forEach((s: any) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(' ') || s.email;
+      results.push({ id: s.id, title: name, subtitle: s.email ?? 'Student', category: 'student', link: '/dept-head/roster' });
+    });
+  }
+
+  // ── ACADEMIC ADVISOR ─────────────────────────────────────────────────────
+  if (role === 'academic_advisor') {
+    // Students they advise (or all students)
+    const { data: students } = await supabase
+      .from('users').select('id, first_name, last_name, email').eq('role', 'student')
+      .or(`first_name.ilike.${pat},last_name.ilike.${pat},email.ilike.${pat}`).limit(LIMIT);
+    (students ?? []).forEach((s: any) => {
+      const name = [s.first_name, s.last_name].filter(Boolean).join(' ') || s.email;
+      results.push({ id: s.id, title: name, subtitle: s.email ?? 'Student', category: 'student', link: '/advisor/students' });
+    });
+
+    // Courses
+    const { data: courses } = await supabase
+      .from('courses').select('id, title, code').or(`title.ilike.${pat},code.ilike.${pat}`).limit(LIMIT);
+    (courses ?? []).forEach((c: any) => {
+      results.push({ id: c.id, title: c.title, subtitle: (c.code ?? '').toUpperCase(), category: 'course', link: '/advisor/dashboard' });
+    });
+
+    // Announcements
+    const { data: anncs } = await supabase
+      .from('announcements').select('id, title').ilike('title', pat).limit(LIMIT);
+    (anncs ?? []).forEach((a: any) => {
+      results.push({ id: a.id, title: a.title, subtitle: 'Announcement', category: 'announcement', link: '/advisor/dashboard' });
+    });
+  }
+
+  // ── IT ADMIN ─────────────────────────────────────────────────────────────
+  if (role === 'it_admin') {
+    const { data: allUsers } = await supabase
+      .from('users').select('id, first_name, last_name, email, role')
+      .or(`first_name.ilike.${pat},last_name.ilike.${pat},email.ilike.${pat}`).limit(LIMIT * 2);
+    (allUsers ?? []).forEach((u: any) => {
+      const name = [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email;
+      const cat = u.role === 'student' ? 'student' : u.role === 'instructor' ? 'instructor' : 'student';
+      results.push({ id: u.id, title: name, subtitle: `${u.email ?? ''} · ${u.role}`, category: cat, link: '/it-admin/dashboard' });
+    });
+
+    const { data: courses } = await supabase
+      .from('courses').select('id, title, code').or(`title.ilike.${pat},code.ilike.${pat}`).limit(LIMIT);
+    (courses ?? []).forEach((c: any) => {
+      results.push({ id: c.id, title: c.title, subtitle: (c.code ?? '').toUpperCase(), category: 'course', link: '/it-admin/dashboard' });
+    });
+  }
+
   return NextResponse.json({ results: results.slice(0, 30) });
 }

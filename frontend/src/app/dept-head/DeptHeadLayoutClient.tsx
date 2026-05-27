@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import GlobalSearch from '@/components/shared/GlobalSearch';
 import {
   InstructorCourseProvider,
   useInstructorCourse,
@@ -398,6 +399,8 @@ function DeptHeadLayoutInner({
             )}
           </div>
         </div>
+
+        <GlobalSearch />
 
         {/* Right: notifications + user */}
         <div className="flex items-center gap-1 shrink-0">

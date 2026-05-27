@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import GlobalSearch from '@/components/shared/GlobalSearch';
 
 const HEADER_BG = '#0f766e';
 
@@ -122,6 +123,8 @@ export default function AdvisorLayoutClient({ user, children }: { user: AdvisorU
           <Link href="/advisor/dashboard" className="font-semibold text-lg">MULE LMS</Link>
           <span className="ml-2 px-2 py-0.5 rounded bg-white/20 text-xs font-medium">Academic Advisor</span>
         </div>
+
+        <GlobalSearch />
 
         <div className="flex items-center gap-2">
           {/* Notifications */}

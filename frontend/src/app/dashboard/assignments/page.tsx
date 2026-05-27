@@ -116,6 +116,13 @@ export default function StudentAssignmentsPage() {
 
   const now = new Date();
 
+  const dueSoon = assignments.filter(a => {
+    if (a.submission_id) return false;
+    const due = new Date(a.due_date);
+    const hoursLeft = (due.getTime() - now.getTime()) / 36e5;
+    return hoursLeft > 0 && hoursLeft <= 48;
+  });
+
   const filtered = assignments.filter(a => {
     if (filter === 'pending') return !a.submission_id;
     if (filter === 'submitted') return !!a.submission_id && a.score === null;
@@ -161,6 +168,39 @@ export default function StudentAssignmentsPage() {
         <h1 className="text-2xl font-bold text-gray-900">Assignments</h1>
         <p className="text-sm text-gray-500 mt-1">All assignments from your enrolled courses</p>
       </div>
+
+      {/* Due soon alert */}
+      {dueSoon.length > 0 && (
+        <div className="mb-5 bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="w-4 h-4 text-orange-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-sm font-semibold text-orange-800">Due within 48 hours</p>
+          </div>
+          <div className="space-y-1.5">
+            {dueSoon.map(a => {
+              const hoursLeft = (new Date(a.due_date).getTime() - now.getTime()) / 36e5;
+              return (
+                <div key={a.id} className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-orange-700 truncate block">{a.title}</span>
+                    <span className="text-xs text-orange-500">{a.course_name}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-semibold text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full">
+                      {hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m left` : `${Math.round(hoursLeft)}h left`}
+                    </span>
+                    <a href={`/dashboard/assignments/${a.id}`} className="text-xs font-semibold text-white bg-orange-500 hover:bg-orange-600 px-2.5 py-1 rounded-lg transition-colors">
+                      Submit
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
