@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { upsertGradebookItem } from '@/services/grading.service';
+import { InlineAnnotator, type Annotation } from '@/components/instructor/InlineAnnotator';
 
 type AssignmentInfo = {
   id: string;
@@ -50,6 +51,7 @@ type Submission = {
   final_score: number | null;
   feedback: string | null;
   enrollment_id: string;
+  annotations: Annotation[];
   inputScore: string;
   inputFeedback: string;
   saving: boolean;
@@ -125,7 +127,7 @@ export default function AssignmentSubmissionsPage() {
 
       const { data: subs } = await supabase
         .from('assignment_submissions')
-        .select(`id, student_id, enrollment_id, text_body, file_urls, status, submitted_at, is_late, score, final_score, feedback`)
+        .select(`id, student_id, enrollment_id, text_body, file_urls, status, submitted_at, is_late, score, final_score, feedback, annotations`)
         .eq('assignment_id', id)
         .order('submitted_at', { ascending: false });
 
@@ -170,6 +172,7 @@ export default function AssignmentSubmissionsPage() {
         final_score: s.final_score,
         feedback: s.feedback,
         enrollment_id: s.enrollment_id,
+        annotations: Array.isArray(s.annotations) ? s.annotations : [],
         inputScore: s.score !== null ? String(s.score) : '',
         inputFeedback: s.feedback ?? '',
         saving: false,
@@ -189,6 +192,10 @@ export default function AssignmentSubmissionsPage() {
     setSubmissions(prev => prev.map(s => s.id === subId ? { ...s, [field]: value } : s));
   };
 
+  const updateAnnotations = (subId: string, anns: Annotation[]) => {
+    setSubmissions(prev => prev.map(s => s.id === subId ? { ...s, annotations: anns } : s));
+  };
+
   const saveGrade = async (sub: Submission) => {
     if (!assignment) return;
     const scoreNum = parseFloat(sub.inputScore);
@@ -206,6 +213,7 @@ export default function AssignmentSubmissionsPage() {
         score: scoreNum,
         final_score: scoreNum,
         feedback: sub.inputFeedback.trim() || null,
+        annotations: sub.annotations,
         status: 'graded',
         graded_by: instructorUserId,
         graded_at: new Date().toISOString(),
@@ -241,7 +249,7 @@ export default function AssignmentSubmissionsPage() {
 
     setSubmissions(prev => prev.map(s =>
       s.id === sub.id
-        ? { ...s, saving: false, score: scoreNum, final_score: scoreNum, feedback: sub.inputFeedback.trim() || null, status: 'graded' }
+        ? { ...s, saving: false, score: scoreNum, final_score: scoreNum, feedback: sub.inputFeedback.trim() || null, status: 'graded', annotations: sub.annotations }
         : s
     ));
   };
@@ -489,13 +497,15 @@ export default function AssignmentSubmissionsPage() {
                 {/* Expanded detail */}
                 {isExpanded && (
                   <div className="border-t border-gray-100 px-5 py-5 bg-gray-50/30 space-y-4">
-                    {/* Text response */}
+                    {/* Text response with inline annotation */}
                     {sub.text_body && (
                       <div>
                         <p className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wide">Text Response</p>
-                        <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-800 whitespace-pre-wrap max-h-64 overflow-y-auto">
-                          {sub.text_body}
-                        </div>
+                        <InlineAnnotator
+                          text={sub.text_body}
+                          annotations={sub.annotations}
+                          onChange={anns => updateAnnotations(sub.id, anns)}
+                        />
                       </div>
                     )}
 
@@ -644,7 +654,7 @@ export default function AssignmentSubmissionsPage() {
                     {/* Grading form */}
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                       <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Grade Submission</p>
-                      <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="flex flex-col gap-3">
                         <div className="flex-shrink-0">
                           <label className="block text-xs text-gray-500 mb-1">
                             Score (max: {assignment.max_score})
@@ -661,16 +671,16 @@ export default function AssignmentSubmissionsPage() {
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs text-gray-500 mb-1">Feedback (optional)</label>
-                          <input
-                            type="text"
+                          <label className="block text-xs text-gray-500 mb-1">Overall Feedback (optional)</label>
+                          <textarea
+                            rows={3}
                             value={sub.inputFeedback}
                             onChange={e => updateField(sub.id, 'inputFeedback', e.target.value)}
-                            placeholder="Great work! / Please revise..."
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]"
+                            placeholder="Great work! / Please revise the second paragraph…"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95] resize-y"
                           />
                         </div>
-                        <div className="flex items-end">
+                        <div className="flex items-start">
                           <button
                             type="button"
                             onClick={() => saveGrade(sub)}

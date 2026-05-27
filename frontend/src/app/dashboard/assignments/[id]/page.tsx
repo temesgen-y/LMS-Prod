@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import RichTextEditor from '@/components/shared/RichTextEditor';
+import { InlineAnnotator, type Annotation } from '@/components/instructor/InlineAnnotator';
 
 type AssignmentDetail = {
   id: string;
@@ -36,6 +37,7 @@ type Submission = {
   score: number | null;
   final_score: number | null;
   feedback: string | null;
+  annotations: Annotation[];
 };
 
 type PendingFile = { file: File; name: string; sizeKb: number };
@@ -96,10 +98,10 @@ export default function AssignmentSubmitPage() {
 
       const { data: sub } = await supabase
         .from('assignment_submissions')
-        .select('id, text_body, file_urls, url_submission, media_urls, draft_text, draft_saved_at, status, submitted_at, score, final_score, feedback')
+        .select('id, text_body, file_urls, url_submission, media_urls, draft_text, draft_saved_at, status, submitted_at, score, final_score, feedback, annotations')
         .eq('assignment_id', id).eq('student_id', profile.id).maybeSingle();
       if (sub) {
-        setSubmission(sub as any);
+        setSubmission({ ...(sub as any), annotations: Array.isArray((sub as any).annotations) ? (sub as any).annotations : [] });
         setTextBody(sub.text_body ?? (sub as any).draft_text ?? '');
         setUrlSubmission((sub as any).url_submission ?? '');
         if ((sub as any).draft_saved_at) setDraftSavedAt(new Date((sub as any).draft_saved_at));
@@ -214,9 +216,9 @@ export default function AssignmentSubmitPage() {
 
     const { data: sub } = await supabase
       .from('assignment_submissions')
-      .select('id, text_body, file_urls, status, submitted_at, score, final_score, feedback')
+      .select('id, text_body, file_urls, status, submitted_at, score, final_score, feedback, annotations')
       .eq('assignment_id', id).eq('student_id', userId).maybeSingle();
-    if (sub) setSubmission(sub);
+    if (sub) setSubmission({ ...(sub as any), annotations: Array.isArray((sub as any).annotations) ? (sub as any).annotations : [] });
   };
 
   const formatDate = (iso: string) =>
@@ -296,15 +298,26 @@ export default function AssignmentSubmitPage() {
 
         {/* Grade */}
         {isGraded && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-4">
-            <h2 className="text-sm font-semibold text-green-800 mb-2 uppercase tracking-wide">Grade</h2>
+          <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-4 space-y-3">
+            <h2 className="text-sm font-semibold text-green-800 uppercase tracking-wide">Grade</h2>
             <p className="text-3xl font-bold text-green-700">
               {submission!.final_score ?? submission!.score}
               <span className="text-lg font-normal text-green-600 ml-1">/ {assignment.max_score}</span>
             </p>
             {submission!.feedback && (
-              <div className="mt-3 text-sm text-green-800">
-                <span className="font-medium">Instructor Feedback: </span>{submission!.feedback}
+              <div className="text-sm text-green-800 bg-white border border-green-200 rounded-lg p-3">
+                <span className="font-medium block mb-1">Instructor Feedback</span>
+                <p className="whitespace-pre-wrap">{submission!.feedback}</p>
+              </div>
+            )}
+            {submission!.text_body && submission!.annotations.length > 0 && (
+              <div>
+                <p className="text-sm font-semibold text-green-800 mb-2">Annotated Submission</p>
+                <InlineAnnotator
+                  text={submission!.text_body}
+                  annotations={submission!.annotations}
+                  readOnly
+                />
               </div>
             )}
           </div>

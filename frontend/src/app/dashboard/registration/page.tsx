@@ -22,7 +22,7 @@ type PrereqStatus = {
   prerequisiteCode  : string;
   prerequisiteTitle : string;
   minGrade          : string;
-  isRequired        : boolean;
+  prereqType        : 'hard' | 'soft';
   met               : boolean;
 };
 
@@ -130,7 +130,7 @@ export default function CourseRegistrationPage() {
         // Fetch all prerequisites for the displayed courses
         const { data: prereqRows } = await supabase
           .from('course_prerequisites')
-          .select('course_id, prerequisite_id, min_grade, is_required, courses!course_prerequisites_prerequisite_id_fkey(id, code, title)')
+          .select('course_id, prerequisite_id, min_grade, prerequisite_type, courses!course_prerequisites_prerequisite_id_fkey(id, code, title)')
           .in('course_id', courseIds);
 
         // Fetch student's completed enrollments (any offering of those prerequisite courses)
@@ -159,7 +159,7 @@ export default function CourseRegistrationPage() {
             prerequisiteCode:  (p.courses?.code ?? '').toUpperCase(),
             prerequisiteTitle: p.courses?.title ?? '—',
             minGrade:          p.min_grade ?? 'D',
-            isRequired:        p.is_required ?? true,
+            prereqType:        (p.prerequisite_type ?? 'hard') as 'hard' | 'soft',
             met:               completedPrereqCourseIds.has(p.prerequisite_id),
           }));
         }
@@ -246,7 +246,7 @@ export default function CourseRegistrationPage() {
             const isSubmitted = submitted.has(o.id);
             const full = o.maxStudents !== null && o.enrolled >= o.maxStudents;
             const prereqs = prereqMap[o.id] ?? [];
-            const unmetRequired = prereqs.filter(p => p.isRequired && !p.met);
+            const unmetRequired = prereqs.filter(p => p.prereqType === 'hard' && !p.met);
             const prereqBlocked = unmetRequired.length > 0;
 
             return (
@@ -304,7 +304,7 @@ export default function CourseRegistrationPage() {
                           {p.prerequisiteCode}
                         </span>
                         <span className="text-xs text-gray-500 truncate">{p.prerequisiteTitle}</span>
-                        {!p.isRequired && (
+                        {p.prereqType === 'soft' && (
                           <span className="text-[9px] text-gray-400 font-medium">(rec.)</span>
                         )}
                         <span className="text-[10px] text-gray-400 ml-auto shrink-0">min {p.minGrade}</span>
