@@ -38,16 +38,19 @@ async function createZoomMeeting(topic: string, startTime: string, durationMins:
   return { join_url: data.join_url as string, meeting_id: String(data.id), passcode: (data.password ?? '') as string, raw: data };
 }
 
-function makeGoogleJwt(serviceEmail: string, privateKey: string, scope: string): string {
+function makeGoogleJwt(serviceEmail: string, privateKey: string, scope: string, impersonate?: string): string {
   const now = Math.floor(Date.now() / 1000);
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(JSON.stringify({
+  const claims: Record<string, unknown> = {
     iss: serviceEmail,
     scope,
     aud: 'https://oauth2.googleapis.com/token',
     iat: now,
     exp: now + 3600,
-  })).toString('base64url');
+  };
+  // Domain-wide delegation: impersonate a real Google Workspace user
+  if (impersonate) claims.sub = impersonate;
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
   const sigInput = `${header}.${payload}`;
   const sign = crypto.createSign('RSA-SHA256');
   sign.update(sigInput);
@@ -55,8 +58,8 @@ function makeGoogleJwt(serviceEmail: string, privateKey: string, scope: string):
   return `${sigInput}.${sig}`;
 }
 
-async function getGoogleAccessToken(serviceEmail: string, privateKey: string): Promise<string> {
-  const jwt = makeGoogleJwt(serviceEmail, privateKey, 'https://www.googleapis.com/auth/meetings.space.created');
+async function getGoogleAccessToken(serviceEmail: string, privateKey: string, impersonate?: string): Promise<string> {
+  const jwt = makeGoogleJwt(serviceEmail, privateKey, 'https://www.googleapis.com/auth/meetings.space.created', impersonate);
   const body = new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt });
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -69,8 +72,14 @@ async function getGoogleAccessToken(serviceEmail: string, privateKey: string): P
   return data.access_token as string;
 }
 
-async function createGoogleMeetSpace(serviceEmail: string, privateKey: string) {
-  const token = await getGoogleAccessToken(serviceEmail, privateKey);
+async function createGoogleMeetSpace(serviceEmail: string, privateKey: string, impersonate?: string) {
+  if (!impersonate) {
+    throw new Error(
+      'Google Meet requires domain-wide delegation. Set GOOGLE_IMPERSONATE_EMAIL in your environment variables to a Google Workspace user email (e.g. your admin email). ' +
+      'Then enable domain-wide delegation for your service account in Google Admin Console → Security → API Controls → Domain-wide Delegation.'
+    );
+  }
+  const token = await getGoogleAccessToken(serviceEmail, privateKey, impersonate);
   const res = await fetch('https://meet.googleapis.com/v2/spaces', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -117,10 +126,11 @@ export async function POST(req: NextRequest) {
     if (platform === 'google_meet') {
       const serviceEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
       const privateKey   = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY;
+      const impersonate  = process.env.GOOGLE_IMPERSONATE_EMAIL;
       if (!serviceEmail || !privateKey) {
         return NextResponse.json({ error: 'Google Meet service account credentials are not configured on the server (GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY).' }, { status: 503 });
       }
-      const result = await createGoogleMeetSpace(serviceEmail, privateKey);
+      const result = await createGoogleMeetSpace(serviceEmail, privateKey, impersonate);
       return NextResponse.json({ join_url: result.join_url, meeting_id: result.meeting_id, passcode: '', provider_data: result.raw });
     }
 
