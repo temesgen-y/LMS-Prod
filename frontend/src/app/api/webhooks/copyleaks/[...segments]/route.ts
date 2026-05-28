@@ -32,27 +32,35 @@ export async function POST(
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ ok: true }); }
 
-  // aggregatedScore is the overall similarity % (0–100)
+  // Copyleaks returns aggregatedScore as a fraction (0–1). Multiply to a percentage.
+  // Defensive: if a value > 1 is ever sent, treat it as already-percent.
   const score: any = body?.results?.score ?? {};
-  const similarityPct: number = Math.round(score.aggregatedScore ?? 0);
+  const rawScore: number = score.aggregatedScore ?? 0;
+  const similarityPct: number = Math.round(rawScore <= 1 ? rawScore * 100 : rawScore);
 
-  // Build source matches from internet + database results
-  type CopyleaksSource = { id: string; url?: string; title?: string; similarity: number; matchedWords?: number };
+  // Internet/database sources expose matchedWords (a count), not a similarity ratio.
+  const totalWords: number = body?.scannedDocument?.totalWords ?? body?.results?.score?.identicalWords ?? 0;
+  type CopyleaksSource = { id?: string; url?: string; title?: string; matchedWords?: number };
   const internetMatches: CopyleaksSource[] = body?.results?.internet ?? [];
   const dbMatches: CopyleaksSource[] = body?.results?.database ?? [];
   const allSources = [...internetMatches, ...dbMatches];
 
   const sourceMatches = allSources
-    .filter((s: CopyleaksSource) => s.similarity > 0)
-    .sort((a: CopyleaksSource, b: CopyleaksSource) => b.similarity - a.similarity)
-    .slice(0, 10)
     .map((s: CopyleaksSource) => ({
+      matchedWords: s.matchedWords ?? 0,
+      url: s.url ?? '',
+      title: s.title ?? s.url ?? 'External source',
+    }))
+    .filter(s => s.matchedWords > 0)
+    .sort((a, b) => b.matchedWords - a.matchedWords)
+    .slice(0, 10)
+    .map(s => ({
       submission_id: '',
       student_id: '',
-      similarity_pct: Math.round((s.similarity ?? 0) * 100),
-      matched_passages: [{ text: s.title ?? s.url ?? 'External source', startWord: 0 }],
-      source_url: s.url ?? '',
-      source_title: s.title ?? s.url ?? 'External source',
+      similarity_pct: totalWords > 0 ? Math.round((s.matchedWords / totalWords) * 100) : 0,
+      matched_passages: [{ text: s.title, startWord: 0 }],
+      source_url: s.url,
+      source_title: s.title,
     }));
 
   await supabase
