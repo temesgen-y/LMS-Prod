@@ -93,15 +93,16 @@ export async function POST(req: NextRequest) {
     const email = process.env.COPYLEAKS_API_EMAIL;
     const key   = process.env.COPYLEAKS_API_KEY;
     if (!email || !key) {
-      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: 'COPYLEAKS_API_EMAIL and COPYLEAKS_API_KEY not configured.', completed_at: new Date().toISOString() }).eq('id', report.id);
+      await admin.from('plagiarism_reports').update({ status: 'failed', error_message: 'Copyleaks credentials not configured on the server (COPYLEAKS_API_EMAIL / COPYLEAKS_API_KEY missing).', completed_at: new Date().toISOString() }).eq('id', report.id);
       return NextResponse.json({ error: 'Copyleaks credentials not configured on the server.' }, { status: 503 });
     }
     if (!sub.text_body || sub.text_body.trim().length < 20) {
-      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: 'No text content to check.', completed_at: new Date().toISOString() }).eq('id', report.id);
+      await admin.from('plagiarism_reports').update({ status: 'failed', error_message: 'No text content to check.', completed_at: new Date().toISOString() }).eq('id', report.id);
       return NextResponse.json({ error: 'Submission has no text content to check.' }, { status: 422 });
     }
     const scanId = crypto.randomUUID();
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001').replace(/\/$/, '');
+    // APP_URL (server-only) takes priority; fall back to NEXT_PUBLIC_APP_URL then localhost
+    const appUrl = (process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001').replace(/\/$/, '');
     try {
       const token = await copyleaksLogin();
       const plainText = sub.text_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -118,7 +119,10 @@ export async function POST(req: NextRequest) {
         }),
         signal: AbortSignal.timeout(15000),
       });
-      if (!uploadRes.ok) throw new Error(`Copyleaks submit failed: ${uploadRes.status} ${await uploadRes.text()}`);
+      if (!uploadRes.ok) {
+        const errBody = await uploadRes.text().catch(() => '');
+        throw new Error(`Copyleaks submit failed: ${uploadRes.status} — ${errBody}`);
+      }
       await admin.from('plagiarism_reports').update({ status: 'pending', provider_scan_id: scanId }).eq('id', report.id);
       return NextResponse.json({ report_id: report.id, status: 'pending', message: 'Copyleaks scan submitted. Results will appear in a few minutes.' });
     } catch (err: any) {
