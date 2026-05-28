@@ -107,6 +107,7 @@ export default function DashboardLayoutClient({
   const [notifs, setNotifs] = useState<Notif[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [announcementUnreadCount, setAnnouncementUnreadCount] = useState(0);
+  const [liveSessionUnreadCount, setLiveSessionUnreadCount] = useState(0);
 
   const loadNotifs = useCallback(async () => {
     const supabase = createClient();
@@ -121,6 +122,7 @@ export default function DashboardLayoutClient({
       setNotifs(notifData.slice(0, 10));
       setUnreadCount(notifData.filter(n => !n.is_read).length);
       setAnnouncementUnreadCount(notifData.filter(n => !n.is_read && n.type === 'announcement').length);
+      setLiveSessionUnreadCount(notifData.filter(n => !n.is_read && n.type === 'live_session_reminder').length);
     }
   }, [user.id]);
 
@@ -136,6 +138,7 @@ export default function DashboardLayoutClient({
       const updated = prev.map(n => n.id === notifId ? { ...n, is_read: true } : n);
       setUnreadCount(updated.filter(n => !n.is_read).length);
       setAnnouncementUnreadCount(updated.filter(n => !n.is_read && n.type === 'announcement').length);
+      setLiveSessionUnreadCount(updated.filter(n => !n.is_read && n.type === 'live_session_reminder').length);
       return updated;
     });
   };
@@ -165,6 +168,7 @@ export default function DashboardLayoutClient({
         notifs={notifs}
         unreadCount={unreadCount}
         announcementUnreadCount={announcementUnreadCount}
+        liveSessionUnreadCount={liveSessionUnreadCount}
         markRead={markRead}
         handleLogout={handleLogout}
         closeAll={closeAll}
@@ -178,7 +182,7 @@ export default function DashboardLayoutClient({
 function InnerLayout({
   user, studyGroupsEnabled, pathname, sidebarOpen, setSidebarOpen,
   userMenuOpen, setUserMenuOpen, helpOpen, setHelpOpen,
-  notifOpen, setNotifOpen, notifs, unreadCount, announcementUnreadCount, markRead, handleLogout, closeAll,
+  notifOpen, setNotifOpen, notifs, unreadCount, announcementUnreadCount, liveSessionUnreadCount, markRead, handleLogout, closeAll,
   children,
 }: {
   user: DashboardUser;
@@ -192,6 +196,7 @@ function InnerLayout({
   notifs: Notif[];
   unreadCount: number;
   announcementUnreadCount: number;
+  liveSessionUnreadCount: number;
   markRead: (id: string) => void;
   handleLogout: () => void;
   closeAll: () => void;
@@ -233,6 +238,15 @@ function InnerLayout({
     };
     fetchPendingAssignments();
   }, [user.id]);
+
+  // Mark live-session notifications as read when the student visits the Live Sessions page
+  useEffect(() => {
+    if (!pathname?.startsWith('/dashboard/live-sessions')) return;
+    const unread = notifs.filter(n => !n.is_read && n.type === 'live_session_reminder');
+    unread.forEach(n => markRead(n.id));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, notifs.length]);
+
   const headerPurple = true; // Always purple, matching Halo Learn style
   const { toggle: toggleClassSidebar } = useClassSidebar();
 
@@ -479,6 +493,8 @@ function InnerLayout({
                           badge = <span className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0 ${active ? 'bg-white/30 text-white' : 'bg-red-500 text-white'}`}>{unreadCount > 9 ? '9+' : unreadCount}</span>;
                         } else if (item.href === '/dashboard/announcements' && announcementUnreadCount > 0) {
                           badge = <span className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0 ${active ? 'bg-amber-300 text-gray-900' : 'bg-amber-400 text-gray-900'}`}>{announcementUnreadCount > 9 ? '9+' : announcementUnreadCount}</span>;
+                        } else if (item.href === '/dashboard/live-sessions' && liveSessionUnreadCount > 0) {
+                          badge = <span className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0 ${active ? 'bg-white/30 text-white' : 'bg-green-500 text-white'}`}>{liveSessionUnreadCount > 9 ? '9+' : liveSessionUnreadCount}</span>;
                         } else if (item.href === '/dashboard/messages' && unreadMsgCount > 0) {
                           badge = <span className={`w-5 h-5 text-[10px] font-bold rounded-full flex items-center justify-center flex-shrink-0 ${active ? 'bg-white/30 text-white' : 'bg-blue-500 text-white'}`}>{unreadMsgCount > 9 ? '9+' : unreadMsgCount}</span>;
                         } else if (item.href === '/dashboard/study-groups' && unreadGroupCount > 0) {
