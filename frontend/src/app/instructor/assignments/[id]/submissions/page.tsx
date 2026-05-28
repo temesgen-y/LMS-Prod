@@ -61,6 +61,7 @@ type Submission = {
   plagChecking: boolean;
   plagProvider: 'native' | 'copyleaks' | 'turnitin';
   showPlagPanel: boolean;
+  requestingResubmit: boolean;
 };
 
 function SimilarityBadge({ pct }: { pct: number }) {
@@ -182,6 +183,7 @@ export default function AssignmentSubmissionsPage() {
         plagChecking: false,
         plagProvider: 'native',
         showPlagPanel: false,
+        requestingResubmit: false,
       }));
 
       setSubmissions(mapped);
@@ -254,6 +256,33 @@ export default function AssignmentSubmissionsPage() {
         ? { ...s, saving: false, score: scoreNum, final_score: scoreNum, feedback: sub.inputFeedback.trim() || null, status: 'graded', annotations: sub.annotations }
         : s
     ));
+  };
+
+  const requestResubmit = async (sub: Submission) => {
+    setSubmissions(prev => prev.map(s => s.id === sub.id ? { ...s, requestingResubmit: true } : s));
+    const supabase = createClient();
+    const { error } = await supabase
+      .from('assignment_submissions')
+      .update({ status: 'resubmit_required' })
+      .eq('id', sub.id);
+
+    if (error) {
+      toast.error('Failed to request resubmit: ' + error.message);
+      setSubmissions(prev => prev.map(s => s.id === sub.id ? { ...s, requestingResubmit: false } : s));
+      return;
+    }
+
+    await supabase.from('notifications').insert({
+      user_id: sub.student_id,
+      type: 'assignment_resubmit',
+      title: 'Resubmission Required',
+      body: `Your instructor has requested a resubmission for "${assignment?.title}".`,
+    });
+
+    setSubmissions(prev => prev.map(s =>
+      s.id === sub.id ? { ...s, requestingResubmit: false, status: 'resubmit_required' } : s
+    ));
+    toast.success(`Resubmission requested for ${sub.student_name}`);
   };
 
   const checkPlagiarism = useCallback(async (subId: string) => {
@@ -477,13 +506,16 @@ export default function AssignmentSubmissionsPage() {
                     {sub.plagReport?.status === 'pending' && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500 animate-pulse">Checking…</span>
                     )}
+                    {sub.status === 'resubmit_required' && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-700">Resubmit Required</span>
+                    )}
                     {isGraded ? (
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
                         {sub.final_score ?? sub.score}/{assignment.max_score}
                       </span>
-                    ) : (
+                    ) : sub.status !== 'resubmit_required' ? (
                       <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Needs grading</span>
-                    )}
+                    ) : null}
                     <p className="text-xs text-gray-400 hidden sm:block">{formatDate(sub.submitted_at)}</p>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -699,7 +731,7 @@ export default function AssignmentSubmissionsPage() {
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95] resize-y"
                           />
                         </div>
-                        <div className="flex items-start">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <button
                             type="button"
                             onClick={() => saveGrade(sub)}
@@ -714,6 +746,34 @@ export default function AssignmentSubmissionsPage() {
                             )}
                             {isGraded ? 'Update Grade' : 'Save Grade'}
                           </button>
+                          {sub.status !== 'resubmit_required' && (
+                            <button
+                              type="button"
+                              onClick={() => requestResubmit(sub)}
+                              disabled={sub.requestingResubmit}
+                              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 disabled:opacity-60 transition-colors"
+                            >
+                              {sub.requestingResubmit ? (
+                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" />
+                                </svg>
+                              ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08 1.011.75.75 0 1 1-1.31-.734 6 6 0 0 1 9.44-1.348l.842.841V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.348l-.842-.841v1.222a.75.75 0 0 1-1.5 0V9.546a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H4.013l.84.841A4.5 4.5 0 0 0 11.93 10.13a.75.75 0 0 1 .994.847Z" clipRule="evenodd" />
+                                </svg>
+                              )}
+                              {sub.requestingResubmit ? 'Requesting…' : 'Request Resubmit'}
+                            </button>
+                          )}
+                          {sub.status === 'resubmit_required' && (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
+                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                                <path fillRule="evenodd" d="M6.701 2.25c.577-1 2.02-1 2.598 0l5.196 9a1.5 1.5 0 0 1-1.299 2.25H2.804a1.5 1.5 0 0 1-1.3-2.25l5.197-9ZM8 4a.75.75 0 0 1 .75.75v3a.75.75 0 1 1-1.5 0v-3A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" clipRule="evenodd" />
+                              </svg>
+                              Resubmission Requested
+                            </span>
+                          )}
                         </div>
                       </div>
                       {isGraded && (
