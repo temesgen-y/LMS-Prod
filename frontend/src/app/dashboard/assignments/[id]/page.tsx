@@ -61,6 +61,8 @@ export default function AssignmentSubmitPage() {
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [error, setError]             = useState<string | null>(null);
   const [success, setSuccess]         = useState(false);
+  const [plagChecking, setPlagChecking] = useState(false);
+  const [plagResult, setPlagResult]   = useState<{ similarity_pct: number; match_count: number } | null>(null);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -479,14 +481,86 @@ export default function AssignmentSubmitPage() {
               </div>
             )}
 
+            {/* Plagiarism self-check */}
+            {isEditable && assignment?.allow_text && (
+              <div className="border border-violet-100 bg-violet-50/40 rounded-xl p-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-xs font-semibold text-violet-800 uppercase tracking-wide">Plagiarism Self-Check</p>
+                  <button
+                    type="button"
+                    disabled={plagChecking || textBody.replace(/<[^>]+>/g, '').trim().length < 50}
+                    title={textBody.replace(/<[^>]+>/g, '').trim().length < 50 ? 'Write at least 50 characters to check' : ''}
+                    onClick={async () => {
+                      setPlagChecking(true);
+                      setPlagResult(null);
+                      try {
+                        const res = await fetch('/api/plagiarism/student-check', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ assignment_id: assignment?.id, text: textBody }),
+                        });
+                        const data = await res.json();
+                        if (res.ok) setPlagResult(data);
+                        else toast.error(data.error ?? 'Plagiarism check failed');
+                      } catch {
+                        toast.error('Plagiarism check failed');
+                      } finally {
+                        setPlagChecking(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                  >
+                    {plagChecking ? (
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                        <path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    {plagChecking ? 'Checking…' : 'Check for Plagiarism'}
+                  </button>
+                </div>
+                {plagResult && (
+                  <div className="mt-3">
+                    <div className="flex items-center gap-3 mb-1">
+                      {plagResult.similarity_pct < 20 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />{plagResult.similarity_pct}% similar
+                        </span>
+                      ) : plagResult.similarity_pct < 40 ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />{plagResult.similarity_pct}% similar
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />{plagResult.similarity_pct}% similar
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">compared against {plagResult.match_count} submission{plagResult.match_count !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${plagResult.similarity_pct < 20 ? 'bg-green-400' : plagResult.similarity_pct < 40 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                        style={{ width: `${Math.min(plagResult.similarity_pct, 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {plagResult.similarity_pct < 20 ? 'Your work looks original.' : plagResult.similarity_pct < 40 ? 'Moderate similarity detected — review your text.' : 'High similarity detected — please revise before submitting.'}
+                    </p>
+                  </div>
+                )}
+                {!plagResult && !plagChecking && (
+                  <p className="text-xs text-violet-600 mt-1">Check your text against other submissions before submitting.</p>
+                )}
+              </div>
+            )}
+
             {/* Error / success */}
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
-            )}
-            {success && (
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
-                Assignment submitted successfully!
-              </div>
             )}
 
             {/* Cannot submit notice */}
