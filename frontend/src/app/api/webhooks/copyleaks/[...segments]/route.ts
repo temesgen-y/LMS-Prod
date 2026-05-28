@@ -18,7 +18,7 @@ export async function POST(
 
   if (status === 'error') {
     let errorMsg = 'Copyleaks scan error';
-    try { const b = await req.json(); errorMsg = b?.developerPayload ?? errorMsg; } catch { /* ignore */ }
+    try { const b = await req.json(); errorMsg = b?.error?.message ?? b?.developerPayload ?? errorMsg; } catch { /* ignore */ }
     await supabase
       .from('plagiarism_reports')
       .update({ status: 'failed', error_message: errorMsg, completed_at: new Date().toISOString() })
