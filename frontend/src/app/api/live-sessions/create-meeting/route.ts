@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient();
   const { data: profile } = await admin.from('users').select('role').eq('auth_user_id', user.id).single();
-  if (!profile || !['instructor', 'admin'].includes(profile.role)) {
+  if (!profile || !['instructor', 'admin', 'department_head'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden — role: ' + (profile?.role ?? 'not found') }, { status: 403 });
   }
 

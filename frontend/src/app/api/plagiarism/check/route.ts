@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     .select('id, role')
     .eq('auth_user_id', user.id)
     .single();
-  if (!profile || !['instructor', 'admin'].includes(profile.role)) {
+  if (!profile || !['instructor', 'admin', 'department_head'].includes(profile.role)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
