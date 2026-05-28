@@ -6,11 +6,11 @@ import { createAdminClient } from '@/lib/supabase/admin';
 //          POST /api/webhooks/copyleaks/credits-checked/{scanId}
 export async function POST(
   req: NextRequest,
-  { params }: { params: { segments: string[] } }
+  { params }: { params: Promise<{ segments: string[] }> }
 ) {
-  const segments = params.segments ?? [];
-  const status  = segments[0] ?? '';
-  const scanId  = segments[1] ?? '';
+  const { segments } = await params;
+  const status  = segments?.[0] ?? '';
+  const scanId  = segments?.[1] ?? '';
 
   if (!scanId) return NextResponse.json({ ok: true });
 
