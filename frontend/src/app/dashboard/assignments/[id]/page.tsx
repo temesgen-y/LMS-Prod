@@ -63,6 +63,8 @@ export default function AssignmentSubmitPage() {
   const [success, setSuccess]         = useState(false);
   const [plagChecking, setPlagChecking] = useState(false);
   const [plagResult, setPlagResult]   = useState<{ similarity_pct: number; match_count: number } | null>(null);
+  const [myReports, setMyReports]     = useState<Array<{ id: string; status: string; similarity_pct: number | null; provider: string; provider_report_url: string | null; error_message: string | null; completed_at: string | null; requested_at: string }>>([]);
+  const [reportChecking, setReportChecking] = useState(false);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,6 +110,13 @@ export default function AssignmentSubmitPage() {
         setTextBody(sub.text_body ?? (sub as any).draft_text ?? '');
         setUrlSubmission((sub as any).url_submission ?? '');
         if ((sub as any).draft_saved_at) setDraftSavedAt(new Date((sub as any).draft_saved_at));
+        // Load existing plagiarism reports for this submission
+        if ((sub as any).status === 'submitted' || (sub as any).status === 'graded') {
+          fetch(`/api/plagiarism/my-report/${(sub as any).id}`)
+            .then(r => r.json())
+            .then(d => { if (d.reports) setMyReports(d.reports); })
+            .catch(() => {});
+        }
       }
 
       setLoading(false);
@@ -205,17 +214,32 @@ export default function AssignmentSubmitPage() {
       draft_saved_at: null,
     };
 
+    let submissionId = submission?.id ?? null;
     if (submission) {
       const { error: updateError } = await supabase.from('assignment_submissions').update(payload).eq('id', submission.id);
       if (updateError) { setError(updateError.message); setSubmitting(false); return; }
     } else {
-      const { error: insertError } = await supabase.from('assignment_submissions').insert(payload);
+      const { data: inserted, error: insertError } = await supabase
+        .from('assignment_submissions').insert(payload).select('id').single();
       if (insertError) { setError(insertError.message); setSubmitting(false); return; }
+      submissionId = (inserted as any)?.id ?? null;
+    }
+
+    // Fire-and-forget: native check (instant) + Copyleaks (async internet check)
+    if (submissionId && hasText) {
+      fetch('/api/plagiarism/check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: submissionId, provider: 'native' }),
+      }).catch(() => {});
+      fetch('/api/plagiarism/check', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: submissionId, provider: 'copyleaks' }),
+      }).catch(() => {});
     }
 
     setPendingFiles([]);
     setSubmitting(false);
-    toast.success('Assignment submitted successfully!');
+    toast.success('Assignment submitted! Plagiarism check running in background.');
     router.push('/dashboard');
   };
 
@@ -594,6 +618,121 @@ export default function AssignmentSubmitPage() {
             )}
           </div>
         </div>
+
+        {/* Plagiarism Reports (post-submission) */}
+        {(submission?.status === 'submitted' || submission?.status === 'graded') && (
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden mt-4">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800">Plagiarism Check Results</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Native (peer comparison) + Copyleaks (internet/published sources)</p>
+              </div>
+              <button
+                type="button"
+                disabled={reportChecking}
+                onClick={() => {
+                  if (!submission) return;
+                  setReportChecking(true);
+                  fetch(`/api/plagiarism/my-report/${submission.id}`)
+                    .then(r => r.json())
+                    .then(d => { if (d.reports) setMyReports(d.reports); })
+                    .catch(() => {})
+                    .finally(() => setReportChecking(false));
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {reportChecking ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                    <path fillRule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37l-.84-.841a4.5 4.5 0 0 0-7.08 1.011.75.75 0 1 1-1.31-.734 6 6 0 0 1 9.44-1.348l.842.841V3.227a.75.75 0 0 1 .75-.75Zm-.911 7.5A.75.75 0 0 1 13.199 11a6 6 0 0 1-9.44 1.348l-.842-.841v1.222a.75.75 0 0 1-1.5 0V9.546a.75.75 0 0 1 .75-.75h3.182a.75.75 0 0 1 0 1.5H4.013l.84.841A4.5 4.5 0 0 0 11.93 10.13a.75.75 0 0 1 .994.847Z" clipRule="evenodd" />
+                  </svg>
+                )}
+                Refresh
+              </button>
+            </div>
+
+            <div className="p-6">
+              {myReports.length === 0 ? (
+                <div className="text-center py-6 text-sm text-gray-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 mx-auto mb-2 text-gray-200">
+                    <path fillRule="evenodd" d="M10.5 3.75a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5ZM2.25 10.5a8.25 8.25 0 1 1 14.59 5.28l4.69 4.69a.75.75 0 1 1-1.06 1.06l-4.69-4.69A8.25 8.25 0 0 1 2.25 10.5Z" clipRule="evenodd" />
+                  </svg>
+                  No plagiarism reports yet. Reports appear automatically after submission.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {myReports.map(report => {
+                    const providerLabel = report.provider === 'copyleaks' ? 'Copyleaks (Internet)' : report.provider === 'turnitin' ? 'Turnitin' : 'Native (Peer)';
+                    const providerIcon = report.provider === 'native'
+                      ? <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-violet-500"><path d="M2 6.342a3.375 3.375 0 0 1 6-.003 3.375 3.375 0 0 1 6 .003C14.43 9.647 11 13.5 8 13.5S1.57 9.647 2 6.342Z"/></svg>
+                      : <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-blue-500"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/></svg>;
+
+                    return (
+                      <div key={report.id} className="flex items-center gap-4 p-4 border border-gray-100 rounded-xl bg-gray-50/50">
+                        <div className="shrink-0">{providerIcon}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-gray-700">{providerLabel}</span>
+                            {report.status === 'completed' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Completed</span>
+                            )}
+                            {report.status === 'pending' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">Pending</span>
+                            )}
+                            {report.status === 'processing' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Processing</span>
+                            )}
+                            {report.status === 'failed' && (
+                              <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Failed</span>
+                            )}
+                          </div>
+                          {report.status === 'completed' && report.similarity_pct != null && (
+                            <div className="mt-2">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`text-sm font-bold ${report.similarity_pct < 20 ? 'text-green-600' : report.similarity_pct < 40 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                  {report.similarity_pct}% similar
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  {report.similarity_pct < 20 ? 'Original' : report.similarity_pct < 40 ? 'Moderate similarity' : 'High similarity'}
+                                </span>
+                              </div>
+                              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden w-full max-w-xs">
+                                <div
+                                  className={`h-full rounded-full ${report.similarity_pct < 20 ? 'bg-green-400' : report.similarity_pct < 40 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                                  style={{ width: `${Math.min(report.similarity_pct, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )}
+                          {report.status === 'pending' && (
+                            <p className="text-xs text-gray-400 mt-1">Analysis in progress — check back in a few minutes.</p>
+                          )}
+                          {report.status === 'failed' && report.error_message && (
+                            <p className="text-xs text-red-500 mt-1">{report.error_message}</p>
+                          )}
+                          {report.completed_at && (
+                            <p className="text-xs text-gray-400 mt-0.5">Checked {formatDate(report.completed_at)}</p>
+                          )}
+                        </div>
+                        {report.provider_report_url && report.status === 'completed' && (
+                          <a href={report.provider_report_url} target="_blank" rel="noopener noreferrer"
+                            className="shrink-0 text-xs text-[#4c1d95] hover:underline font-medium">
+                            View Report
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

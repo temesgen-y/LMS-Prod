@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { computeSimilarity } from '@/lib/plagiarism/nativeSimilarity';
 import crypto from 'crypto';
 
@@ -20,12 +21,15 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase
+  const admin = createAdminClient();
+  const { data: profile } = await admin
     .from('users')
     .select('id, role')
     .eq('auth_user_id', user.id)
     .single();
-  if (!profile || !['instructor', 'admin', 'department_head'].includes(profile.role)) {
+  const isInstructor = profile && ['instructor', 'admin', 'department_head'].includes(profile.role);
+  const isStudent    = profile?.role === 'student';
+  if (!profile || (!isInstructor && !isStudent)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -40,7 +44,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch the target submission
-  const { data: sub, error: subErr } = await supabase
+  const { data: sub, error: subErr } = await admin
     .from('assignment_submissions')
     .select('id, assignment_id, student_id, text_body, file_urls')
     .eq('id', submission_id)
@@ -49,8 +53,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
   }
 
+  // Students can only check their own submissions
+  if (isStudent && sub.student_id !== profile.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+  // Students cannot use Turnitin (institutional only)
+  const effectiveProvider = (isStudent && provider === 'turnitin') ? 'copyleaks' : provider;
+
   // Upsert report in pending/processing state
-  const { data: report, error: insertErr } = await supabase
+  const { data: report, error: insertErr } = await admin
     .from('plagiarism_reports')
     .upsert(
       {
@@ -59,7 +70,7 @@ export async function POST(req: NextRequest) {
         student_id: sub.student_id,
         requested_by: profile.id,
         status: 'processing',
-        provider,
+        provider: effectiveProvider,
         requested_at: new Date().toISOString(),
         completed_at: null,
         error_message: null,
@@ -70,15 +81,15 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (insertErr || !report) {
-    return NextResponse.json({ error: 'Failed to create report' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create report: ' + insertErr?.message }, { status: 500 });
   }
 
-  if (provider === 'turnitin') {
-    return handleTurnitin(supabase, report.id, sub, profile.id);
+  if (effectiveProvider === 'turnitin') {
+    return handleTurnitin(admin, report.id, sub, profile.id);
   }
 
   // ── Copyleaks ──────────────────────────────────────────────────────────────
-  if (provider === 'copyleaks') {
+  if (effectiveProvider === 'copyleaks') {
     const email = process.env.COPYLEAKS_API_EMAIL;
     const key   = process.env.COPYLEAKS_API_KEY;
     if (!email || !key) {
@@ -93,11 +104,12 @@ export async function POST(req: NextRequest) {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001').replace(/\/$/, '');
     try {
       const token = await copyleaksLogin();
+      const plainText = sub.text_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
       const uploadRes = await fetch(`https://api.copyleaks.com/v3/education/submit/file/${scanId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          base64: Buffer.from(sub.text_body, 'utf-8').toString('base64'),
+          base64: Buffer.from(plainText, 'utf-8').toString('base64'),
           filename: `submission-${submission_id}.txt`,
           properties: {
             webhooks: { status: `${appUrl}/api/webhooks/copyleaks/{STATUS}/{SCAN_ID}` },
@@ -107,18 +119,18 @@ export async function POST(req: NextRequest) {
         signal: AbortSignal.timeout(15000),
       });
       if (!uploadRes.ok) throw new Error(`Copyleaks submit failed: ${uploadRes.status} ${await uploadRes.text()}`);
-      await supabase.from('plagiarism_reports').update({ status: 'pending', provider_scan_id: scanId }).eq('id', report.id);
-      return NextResponse.json({ report_id: report.id, message: 'Copyleaks scan submitted. Results will appear via webhook.' });
+      await admin.from('plagiarism_reports').update({ status: 'pending', provider_scan_id: scanId }).eq('id', report.id);
+      return NextResponse.json({ report_id: report.id, status: 'pending', message: 'Copyleaks scan submitted. Results will appear in a few minutes.' });
     } catch (err: any) {
       const msg = err?.message ?? 'Copyleaks error';
-      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: msg, completed_at: new Date().toISOString() }).eq('id', report.id);
+      await admin.from('plagiarism_reports').update({ status: 'failed', error_message: msg, completed_at: new Date().toISOString() }).eq('id', report.id);
       return NextResponse.json({ error: msg }, { status: 502 });
     }
   }
 
   // Native similarity: compare against all other text_body submissions for the same assignment
   if (!sub.text_body || sub.text_body.trim().length < 50) {
-    await supabase
+    await admin
       .from('plagiarism_reports')
       .update({
         status: 'completed',
@@ -132,7 +144,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch all other submissions with text for this assignment
-  const { data: others } = await supabase
+  const { data: others } = await admin
     .from('assignment_submissions')
     .select('id, student_id, text_body')
     .eq('assignment_id', sub.assignment_id)
@@ -165,7 +177,7 @@ export async function POST(req: NextRequest) {
   // Overall similarity = highest match found (or 0)
   const overallSimilarity = sourceMatches.length > 0 ? sourceMatches[0].similarity_pct : 0;
 
-  await supabase
+  await admin
     .from('plagiarism_reports')
     .update({
       status: 'completed',
@@ -183,7 +195,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleTurnitin(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: ReturnType<typeof createAdminClient>,
   reportId: string,
   sub: { id: string; text_body: string | null },
   requestedBy: string,
