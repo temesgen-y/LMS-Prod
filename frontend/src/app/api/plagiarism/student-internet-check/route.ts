@@ -59,21 +59,26 @@ export async function POST(req: NextRequest) {
     .eq('student_id', profile.id)
     .maybeSingle();
 
-  // Create a draft submission if none exists (gives the report a stable FK)
+  // Create a draft submission if none exists (gives the report a stable FK).
+  // enrollment_id is NOT NULL, so we must resolve a valid enrollment first.
   if (!sub) {
     const { data: enrollment } = await admin
       .from('enrollments')
       .select('id')
       .eq('student_id', profile.id)
       .eq('offering_id', asgn.offering_id)
-      .eq('status', 'active')
+      .order('status', { ascending: true })
+      .limit(1)
       .maybeSingle();
+    if (!enrollment) {
+      return NextResponse.json({ error: 'You are not enrolled in this course, so the check cannot run.' }, { status: 422 });
+    }
     const { data: created, error: createErr } = await admin
       .from('assignment_submissions')
       .insert({
         assignment_id,
         student_id: profile.id,
-        enrollment_id: enrollment?.id ?? null,
+        enrollment_id: enrollment.id,
         draft_text: text,
         draft_saved_at: new Date().toISOString(),
         status: 'draft',
@@ -82,7 +87,7 @@ export async function POST(req: NextRequest) {
       .select('id')
       .single();
     if (createErr || !created) {
-      return NextResponse.json({ error: 'Could not prepare submission for checking.' }, { status: 500 });
+      return NextResponse.json({ error: 'Could not prepare submission for checking: ' + (createErr?.message ?? 'unknown error') }, { status: 500 });
     }
     sub = created;
   }
