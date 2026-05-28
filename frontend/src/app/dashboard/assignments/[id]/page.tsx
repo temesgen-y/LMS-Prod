@@ -63,6 +63,9 @@ export default function AssignmentSubmitPage() {
   const [success, setSuccess]         = useState(false);
   const [plagChecking, setPlagChecking] = useState(false);
   const [plagResult, setPlagResult]   = useState<{ similarity_pct: number; match_count: number } | null>(null);
+  const [internetChecking, setInternetChecking] = useState(false);
+  const [internetReport, setInternetReport] = useState<{ status: string; similarity_pct: number | null; error_message: string | null; source_matches: Array<{ similarity_pct: number; source_url?: string; source_title?: string }> | null } | null>(null);
+  const internetPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [myReports, setMyReports]     = useState<Array<{ id: string; status: string; similarity_pct: number | null; provider: string; provider_report_url: string | null; error_message: string | null; completed_at: string | null; requested_at: string }>>([]);
   const [reportChecking, setReportChecking] = useState(false);
   const fileInputRef  = useRef<HTMLInputElement>(null);
@@ -156,6 +159,55 @@ export default function AssignmentSubmitPage() {
     }, 15_000);
   };
 
+  // Pre-submission internet (Copyleaks) check with polling for async results
+  const runInternetCheck = async () => {
+    if (!assignment) return;
+    if (internetPollRef.current) clearTimeout(internetPollRef.current);
+    setInternetChecking(true);
+    setInternetReport(null);
+    try {
+      const res = await fetch('/api/plagiarism/student-internet-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignment_id: assignment.id, text: textBody }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setInternetReport({ status: 'failed', similarity_pct: null, error_message: data.error ?? 'Internet check failed', source_matches: null });
+        setInternetChecking(false);
+        return;
+      }
+
+      const submissionId = data.submission_id as string;
+      let polls = 0;
+      const poll = async () => {
+        polls++;
+        try {
+          const r = await fetch(`/api/plagiarism/my-report/${submissionId}`);
+          const d = await r.json();
+          const cl = (d.reports ?? []).find((x: any) => x.provider === 'copyleaks');
+          if (cl && (cl.status === 'completed' || cl.status === 'failed')) {
+            setInternetReport(cl);
+            setInternetChecking(false);
+            return;
+          }
+        } catch { /* keep polling */ }
+        if (polls >= 48) { // ~4 minutes
+          setInternetReport({ status: 'pending', similarity_pct: null, error_message: null, source_matches: null });
+          setInternetChecking(false);
+          return;
+        }
+        internetPollRef.current = setTimeout(poll, 5000);
+      };
+      internetPollRef.current = setTimeout(poll, 5000);
+    } catch {
+      setInternetReport({ status: 'failed', similarity_pct: null, error_message: 'Internet check failed', source_matches: null });
+      setInternetChecking(false);
+    }
+  };
+
+  useEffect(() => () => { if (internetPollRef.current) clearTimeout(internetPollRef.current); }, []);
+
   const handleSubmit = async () => {
     if (!assignment || !userId || !enrollmentId) return;
     setError(null);
@@ -220,7 +272,7 @@ export default function AssignmentSubmitPage() {
       if (updateError) { setError(updateError.message); setSubmitting(false); return; }
     } else {
       const { data: inserted, error: insertError } = await supabase
-        .from('assignment_submissions').insert(payload).select('id').single();
+        .from('assignment_submissions').upsert(payload, { onConflict: 'assignment_id,student_id' }).select('id').single();
       if (insertError) { setError(insertError.message); setSubmitting(false); return; }
       submissionId = (inserted as any)?.id ?? null;
     }
@@ -512,11 +564,13 @@ export default function AssignmentSubmitPage() {
                   <p className="text-xs font-semibold text-violet-800 uppercase tracking-wide">Plagiarism Self-Check</p>
                   <button
                     type="button"
-                    disabled={plagChecking || textBody.replace(/<[^>]+>/g, '').trim().length < 50}
+                    disabled={plagChecking || internetChecking || textBody.replace(/<[^>]+>/g, '').trim().length < 50}
                     title={textBody.replace(/<[^>]+>/g, '').trim().length < 50 ? 'Write at least 50 characters to check' : ''}
                     onClick={async () => {
                       setPlagChecking(true);
                       setPlagResult(null);
+                      // Kick off the internet (Copyleaks) check in parallel
+                      runInternetCheck();
                       try {
                         const res = await fetch('/api/plagiarism/student-check', {
                           method: 'POST',
@@ -534,7 +588,7 @@ export default function AssignmentSubmitPage() {
                     }}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
                   >
-                    {plagChecking ? (
+                    {(plagChecking || internetChecking) ? (
                       <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" />
@@ -544,41 +598,74 @@ export default function AssignmentSubmitPage() {
                         <path fillRule="evenodd" d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z" clipRule="evenodd" />
                       </svg>
                     )}
-                    {plagChecking ? 'Checking…' : 'Check for Plagiarism'}
+                    {(plagChecking || internetChecking) ? 'Checking…' : 'Check for Plagiarism'}
                   </button>
                 </div>
-                {plagResult && (
-                  <div className="mt-3">
-                    <div className="flex items-center gap-3 mb-1">
-                      {plagResult.similarity_pct < 20 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />{plagResult.similarity_pct}% similar
+
+                {/* Against other students (native, instant) */}
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-gray-600 mb-1">Against other students</p>
+                  {plagChecking ? (
+                    <p className="text-xs text-gray-400">Comparing with peer submissions…</p>
+                  ) : plagResult ? (
+                    <>
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${plagResult.similarity_pct < 20 ? 'bg-green-100 text-green-700' : plagResult.similarity_pct < 40 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${plagResult.similarity_pct < 20 ? 'bg-green-500' : plagResult.similarity_pct < 40 ? 'bg-yellow-500' : 'bg-red-500'}`} />{plagResult.similarity_pct}% similar
                         </span>
-                      ) : plagResult.similarity_pct < 40 ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">
-                          <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 inline-block" />{plagResult.similarity_pct}% similar
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />{plagResult.similarity_pct}% similar
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-500">compared against {plagResult.match_count} submission{plagResult.match_count !== 1 ? 's' : ''}</span>
-                    </div>
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all ${plagResult.similarity_pct < 20 ? 'bg-green-400' : plagResult.similarity_pct < 40 ? 'bg-yellow-400' : 'bg-red-400'}`}
-                        style={{ width: `${Math.min(plagResult.similarity_pct, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {plagResult.similarity_pct < 20 ? 'Your work looks original.' : plagResult.similarity_pct < 40 ? 'Moderate similarity detected — review your text.' : 'High similarity detected — please revise before submitting.'}
+                        <span className="text-xs text-gray-500">compared against {plagResult.match_count} submission{plagResult.match_count !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${plagResult.similarity_pct < 20 ? 'bg-green-400' : plagResult.similarity_pct < 40 ? 'bg-yellow-400' : 'bg-red-400'}`} style={{ width: `${Math.min(plagResult.similarity_pct, 100)}%` }} />
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-gray-400">Not checked yet.</p>
+                  )}
+                </div>
+
+                {/* Against the internet (Copyleaks, async) */}
+                <div className="mt-3">
+                  <p className="text-xs font-semibold text-gray-600 mb-1">Against the internet &amp; published sources</p>
+                  {internetChecking ? (
+                    <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                      <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" /></svg>
+                      Scanning the internet… this can take 1–4 minutes.
                     </p>
-                  </div>
-                )}
-                {!plagResult && !plagChecking && (
-                  <p className="text-xs text-violet-600 mt-1">Check your text against other submissions before submitting.</p>
-                )}
+                  ) : internetReport?.status === 'completed' && internetReport.similarity_pct != null ? (
+                    <>
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${internetReport.similarity_pct < 20 ? 'bg-green-100 text-green-700' : internetReport.similarity_pct < 40 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${internetReport.similarity_pct < 20 ? 'bg-green-500' : internetReport.similarity_pct < 40 ? 'bg-yellow-500' : 'bg-red-500'}`} />{internetReport.similarity_pct}% similar
+                        </span>
+                        <span className="text-xs text-gray-500">via Copyleaks</span>
+                      </div>
+                      <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${internetReport.similarity_pct < 20 ? 'bg-green-400' : internetReport.similarity_pct < 40 ? 'bg-yellow-400' : 'bg-red-400'}`} style={{ width: `${Math.min(internetReport.similarity_pct, 100)}%` }} />
+                      </div>
+                      {internetReport.source_matches && internetReport.source_matches.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {internetReport.source_matches.slice(0, 5).map((m, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                              {m.source_url ? (
+                                <a href={m.source_url} target="_blank" rel="noopener noreferrer" className="text-violet-700 hover:underline truncate max-w-xs">{m.source_title ?? m.source_url}</a>
+                              ) : (
+                                <span className="text-gray-600 truncate max-w-xs">{m.source_title ?? 'External source'}</span>
+                              )}
+                              <span className="text-gray-400 shrink-0">{m.similarity_pct}%</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : internetReport?.status === 'failed' ? (
+                    <p className="text-xs text-red-500">{internetReport.error_message ?? 'Internet check failed.'}</p>
+                  ) : internetReport?.status === 'pending' ? (
+                    <p className="text-xs text-amber-600">Still scanning — the result will appear in your submission report shortly after you submit.</p>
+                  ) : (
+                    <p className="text-xs text-gray-400">Not checked yet.</p>
+                  )}
+                </div>
               </div>
             )}
 

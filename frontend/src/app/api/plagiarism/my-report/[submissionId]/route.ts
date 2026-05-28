@@ -35,7 +35,7 @@ export async function GET(
 
   const { data: reports, error } = await admin
     .from('plagiarism_reports')
-    .select('id, status, similarity_pct, provider, provider_report_url, error_message, completed_at, requested_at')
+    .select('id, status, similarity_pct, source_matches, provider, provider_report_url, error_message, completed_at, requested_at')
     .eq('submission_id', submissionId)
     .order('requested_at', { ascending: false });
 
