@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { toast } from 'sonner';
 import Link from 'next/link';
 import RichTextEditor from '@/components/shared/RichTextEditor';
 import { InlineAnnotator, type Annotation } from '@/components/instructor/InlineAnnotator';
@@ -210,15 +211,10 @@ export default function AssignmentSubmitPage() {
       if (insertError) { setError(insertError.message); setSubmitting(false); return; }
     }
 
-    setSuccess(true);
     setPendingFiles([]);
     setSubmitting(false);
-
-    const { data: sub } = await supabase
-      .from('assignment_submissions')
-      .select('id, text_body, file_urls, status, submitted_at, score, final_score, feedback, annotations')
-      .eq('assignment_id', id).eq('student_id', userId).maybeSingle();
-    if (sub) setSubmission({ ...(sub as any), annotations: Array.isArray((sub as any).annotations) ? (sub as any).annotations : [] });
+    toast.success('Assignment submitted successfully!');
+    router.push('/dashboard');
   };
 
   const formatDate = (iso: string) =>
