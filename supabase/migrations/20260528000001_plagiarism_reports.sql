@@ -26,6 +26,17 @@ CREATE TABLE IF NOT EXISTS public.plagiarism_reports (
         ON DELETE CASCADE
 );
 
+-- Add columns that may be missing if the table was created by an earlier run
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS provider_scan_id    TEXT;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS provider_report_url TEXT;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS error_message       TEXT;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS assignment_id       UUID;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS student_id          UUID;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS requested_by        UUID;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS completed_at        TIMESTAMPTZ;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS source_matches      JSONB;
+ALTER TABLE public.plagiarism_reports ADD COLUMN IF NOT EXISTS similarity_pct      DECIMAL(5,2);
+
 CREATE INDEX IF NOT EXISTS idx_plagiarism_reports_submission ON public.plagiarism_reports(submission_id);
 CREATE INDEX IF NOT EXISTS idx_plagiarism_reports_scan_id   ON public.plagiarism_reports(provider_scan_id);
 
