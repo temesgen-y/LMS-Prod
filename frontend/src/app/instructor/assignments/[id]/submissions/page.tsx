@@ -24,6 +24,8 @@ type SourceMatch = {
   student_id: string;
   similarity_pct: number;
   matched_passages: MatchedPassage[];
+  source_url?: string;
+  source_title?: string;
 };
 
 type PlagiarismReport = {
@@ -57,7 +59,7 @@ type Submission = {
   saving: boolean;
   plagReport: PlagiarismReport | null;
   plagChecking: boolean;
-  plagProvider: 'native' | 'turnitin';
+  plagProvider: 'native' | 'copyleaks' | 'turnitin';
   showPlagPanel: boolean;
 };
 
@@ -548,11 +550,12 @@ export default function AssignmentSubmissionsPage() {
                           <select
                             value={sub.plagProvider}
                             onChange={e => setSubmissions(prev => prev.map(s =>
-                              s.id === sub.id ? { ...s, plagProvider: e.target.value as 'native' | 'turnitin' } : s
+                              s.id === sub.id ? { ...s, plagProvider: e.target.value as 'native' | 'copyleaks' | 'turnitin' } : s
                             ))}
                             className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-400"
                           >
                             <option value="native">Native (n-gram)</option>
+                            <option value="copyleaks">Copyleaks</option>
                             <option value="turnitin">Turnitin TCA</option>
                           </select>
                           <button
@@ -601,7 +604,9 @@ export default function AssignmentSubmissionsPage() {
                           <div className="flex items-center gap-3 mb-1">
                             <SimilarityBadge pct={simPct} />
                             <span className="text-xs text-gray-500">
-                              {sub.plagReport?.provider === 'turnitin' ? 'via Turnitin' : 'native n-gram Jaccard'}
+                              {sub.plagReport?.provider === 'turnitin' ? 'via Turnitin'
+                                : sub.plagReport?.provider === 'copyleaks' ? 'via Copyleaks'
+                                : 'native n-gram'}
                             </span>
                           </div>
                           {/* Bar */}
@@ -623,22 +628,36 @@ export default function AssignmentSubmissionsPage() {
                       {hasReport && sub.showPlagPanel && sub.plagReport?.source_matches && sub.plagReport.source_matches.length > 0 && (
                         <div className="mt-3 space-y-3">
                           <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Matched Sources</p>
-                          {sub.plagReport.source_matches.map((match, i) => (
-                            <div key={i} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-xs font-semibold text-gray-700">
-                                  {studentNameMap.get(match.student_id) ?? `Student ${i + 1}`}
-                                </span>
-                                <SimilarityBadge pct={match.similarity_pct} />
-                              </div>
-                              {match.matched_passages.slice(0, 3).map((passage, pi) => (
-                                <div key={pi} className="mt-1.5 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
-                                  <p className="text-xs text-yellow-900 italic">"{passage.text}"</p>
-                                  <p className="text-xs text-yellow-600 mt-0.5">Word {passage.startWord + 1}</p>
+                          {sub.plagReport.source_matches.map((match, i) => {
+                            const isExternal = !!match.source_url || !match.student_id;
+                            const label = isExternal
+                              ? (match.source_title ?? match.source_url ?? `Source ${i + 1}`)
+                              : (studentNameMap.get(match.student_id) ?? `Student ${i + 1}`);
+                            return (
+                              <div key={i} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                                <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                                  <div className="min-w-0">
+                                    {isExternal && match.source_url ? (
+                                      <a href={match.source_url} target="_blank" rel="noopener noreferrer"
+                                        className="text-xs font-semibold text-violet-700 hover:underline truncate block max-w-xs">
+                                        {label}
+                                      </a>
+                                    ) : (
+                                      <span className="text-xs font-semibold text-gray-700">{label}</span>
+                                    )}
+                                    {isExternal && <span className="text-xs text-gray-400">Internet / Database</span>}
+                                  </div>
+                                  <SimilarityBadge pct={match.similarity_pct} />
                                 </div>
-                              ))}
-                            </div>
-                          ))}
+                                {!isExternal && match.matched_passages.slice(0, 3).map((passage, pi) => (
+                                  <div key={pi} className="mt-1.5 bg-yellow-50 border border-yellow-200 rounded px-3 py-2">
+                                    <p className="text-xs text-yellow-900 italic">"{passage.text}"</p>
+                                    <p className="text-xs text-yellow-600 mt-0.5">Word {passage.startWord + 1}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
 

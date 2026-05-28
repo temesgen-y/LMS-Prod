@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { computeSimilarity } from '@/lib/plagiarism/nativeSimilarity';
+import crypto from 'crypto';
+
+async function copyleaksLogin(): Promise<string> {
+  const res = await fetch('https://id.copyleaks.com/v3/account/login/api', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: process.env.COPYLEAKS_API_EMAIL, key: process.env.COPYLEAKS_API_KEY }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`Copyleaks login failed: ${res.status}`);
+  return (await res.json()).access_token as string;
+}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -20,7 +32,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { submission_id, provider = 'native' } = body as {
     submission_id: string;
-    provider?: 'native' | 'turnitin';
+    provider?: 'native' | 'copyleaks' | 'turnitin';
   };
 
   if (!submission_id) {
@@ -37,7 +49,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Submission not found' }, { status: 404 });
   }
 
-  // Upsert report in pending state
+  // Upsert report in pending/processing state
   const { data: report, error: insertErr } = await supabase
     .from('plagiarism_reports')
     .upsert(
@@ -52,7 +64,7 @@ export async function POST(req: NextRequest) {
         completed_at: null,
         error_message: null,
       },
-      { onConflict: 'submission_id' }
+      { onConflict: 'submission_id,provider' }
     )
     .select('id')
     .single();
@@ -63,6 +75,45 @@ export async function POST(req: NextRequest) {
 
   if (provider === 'turnitin') {
     return handleTurnitin(supabase, report.id, sub, profile.id);
+  }
+
+  // ── Copyleaks ──────────────────────────────────────────────────────────────
+  if (provider === 'copyleaks') {
+    const email = process.env.COPYLEAKS_API_EMAIL;
+    const key   = process.env.COPYLEAKS_API_KEY;
+    if (!email || !key) {
+      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: 'COPYLEAKS_API_EMAIL and COPYLEAKS_API_KEY not configured.', completed_at: new Date().toISOString() }).eq('id', report.id);
+      return NextResponse.json({ error: 'Copyleaks credentials not configured on the server.' }, { status: 503 });
+    }
+    if (!sub.text_body || sub.text_body.trim().length < 20) {
+      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: 'No text content to check.', completed_at: new Date().toISOString() }).eq('id', report.id);
+      return NextResponse.json({ error: 'Submission has no text content to check.' }, { status: 422 });
+    }
+    const scanId = crypto.randomUUID();
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3001').replace(/\/$/, '');
+    try {
+      const token = await copyleaksLogin();
+      const uploadRes = await fetch(`https://api.copyleaks.com/v3/education/submit/file/${scanId}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base64: Buffer.from(sub.text_body, 'utf-8').toString('base64'),
+          filename: `submission-${submission_id}.txt`,
+          properties: {
+            webhooks: { status: `${appUrl}/api/webhooks/copyleaks/{STATUS}/{SCAN_ID}` },
+            sensitiveDataProtection: { shouldProtect: false },
+          },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!uploadRes.ok) throw new Error(`Copyleaks submit failed: ${uploadRes.status} ${await uploadRes.text()}`);
+      await supabase.from('plagiarism_reports').update({ status: 'pending', provider_scan_id: scanId }).eq('id', report.id);
+      return NextResponse.json({ report_id: report.id, message: 'Copyleaks scan submitted. Results will appear via webhook.' });
+    } catch (err: any) {
+      const msg = err?.message ?? 'Copyleaks error';
+      await supabase.from('plagiarism_reports').update({ status: 'failed', error_message: msg, completed_at: new Date().toISOString() }).eq('id', report.id);
+      return NextResponse.json({ error: msg }, { status: 502 });
+    }
   }
 
   // Native similarity: compare against all other text_body submissions for the same assignment

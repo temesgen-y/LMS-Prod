@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { toast } from 'sonner';
 
-type Provider = 'native' | 'turnitin';
+type Provider = 'native' | 'copyleaks' | 'turnitin';
 
 type PlagiarismSettings = {
   default_provider: Provider;
@@ -102,27 +102,27 @@ export default function PlagiarismSettingsPage() {
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
         <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Default Provider</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {(['native', 'turnitin'] as const).map(p => (
+          {([
+            { id: 'native',    label: 'Native (n-gram)',  desc: 'Built-in Jaccard similarity — no external service required. Compares submissions within the same assignment.' },
+            { id: 'copyleaks', label: 'Copyleaks',        desc: 'Copyleaks API — checks against internet, academic databases, and prior submissions. Free tier available. Requires API credentials.' },
+            { id: 'turnitin',  label: 'Turnitin TCA',     desc: 'Turnitin Content Analysis (TCA) API — checks against academic databases, internet, and prior submissions. Requires institutional API credentials.' },
+          ] as const).map(p => (
             <button
-              key={p}
+              key={p.id}
               type="button"
-              onClick={() => setSettings(s => ({ ...s, default_provider: p }))}
+              onClick={() => setSettings(s => ({ ...s, default_provider: p.id }))}
               className={`flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all ${
-                settings.default_provider === p
+                settings.default_provider === p.id
                   ? 'border-[#4c1d95] bg-purple-50'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${settings.default_provider === p ? 'border-[#4c1d95]' : 'border-gray-300'}`}>
-                {settings.default_provider === p && <div className="w-2 h-2 rounded-full bg-[#4c1d95]" />}
+              <div className={`w-4 h-4 rounded-full border-2 mt-0.5 flex items-center justify-center shrink-0 ${settings.default_provider === p.id ? 'border-[#4c1d95]' : 'border-gray-300'}`}>
+                {settings.default_provider === p.id && <div className="w-2 h-2 rounded-full bg-[#4c1d95]" />}
               </div>
               <div>
-                <p className="text-sm font-semibold text-gray-900 capitalize">{p === 'native' ? 'Native (n-gram)' : 'Turnitin TCA'}</p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {p === 'native'
-                    ? 'Built-in Jaccard similarity — no external service required. Compares submissions within the same assignment.'
-                    : 'Turnitin Content Analysis (TCA) API — checks against academic databases, internet, and prior submissions. Requires API credentials.'}
-                </p>
+                <p className="text-sm font-semibold text-gray-900">{p.label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{p.desc}</p>
               </div>
             </button>
           ))}
@@ -165,6 +165,22 @@ export default function PlagiarismSettingsPage() {
           <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">0–{settings.native_threshold_low - 1}% Low</span>
           <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">{settings.native_threshold_low}–{settings.native_threshold_high - 1}% Medium</span>
           <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">{settings.native_threshold_high}%+ High</span>
+        </div>
+      </div>
+
+      {/* Copyleaks connection */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Copyleaks Connection</h2>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs text-gray-600 space-y-1">
+          <p className="font-semibold text-gray-700 mb-2">Required environment variables (set on the server):</p>
+          <code className="block font-mono bg-white border border-gray-200 rounded px-2 py-1">COPYLEAKS_API_EMAIL=your@email.com</code>
+          <code className="block font-mono bg-white border border-gray-200 rounded px-2 py-1">COPYLEAKS_API_KEY=your-api-key</code>
+          <p className="mt-2 text-gray-500">
+            Get your API key at{' '}
+            <span className="font-mono text-[#4c1d95]">copyleaks.com → API Access</span>.
+            Free tier: 25 pages/month. Results arrive via webhook — register{' '}
+            <span className="font-mono">{'<APP_URL>'}/api/webhooks/copyleaks</span> in your Copyleaks dashboard.
+          </p>
         </div>
       </div>
 
