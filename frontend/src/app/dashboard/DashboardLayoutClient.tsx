@@ -170,6 +170,7 @@ export default function DashboardLayoutClient({
         announcementUnreadCount={announcementUnreadCount}
         liveSessionUnreadCount={liveSessionUnreadCount}
         markRead={markRead}
+        reloadNotifs={loadNotifs}
         handleLogout={handleLogout}
         closeAll={closeAll}
       >
@@ -182,7 +183,7 @@ export default function DashboardLayoutClient({
 function InnerLayout({
   user, studyGroupsEnabled, pathname, sidebarOpen, setSidebarOpen,
   userMenuOpen, setUserMenuOpen, helpOpen, setHelpOpen,
-  notifOpen, setNotifOpen, notifs, unreadCount, announcementUnreadCount, liveSessionUnreadCount, markRead, handleLogout, closeAll,
+  notifOpen, setNotifOpen, notifs, unreadCount, announcementUnreadCount, liveSessionUnreadCount, markRead, reloadNotifs, handleLogout, closeAll,
   children,
 }: {
   user: DashboardUser;
@@ -198,6 +199,7 @@ function InnerLayout({
   announcementUnreadCount: number;
   liveSessionUnreadCount: number;
   markRead: (id: string) => void;
+  reloadNotifs: () => void;
   handleLogout: () => void;
   closeAll: () => void;
   children: React.ReactNode;
@@ -239,13 +241,20 @@ function InnerLayout({
     fetchPendingAssignments();
   }, [user.id]);
 
-  // Mark live-session notifications as read when the student visits the Live Sessions page
+  // When student visits Live Sessions page, bulk-mark all live_session_reminder notifications as read
   useEffect(() => {
     if (!pathname?.startsWith('/dashboard/live-sessions')) return;
-    const unread = notifs.filter(n => !n.is_read && n.type === 'live_session_reminder');
-    unread.forEach(n => markRead(n.id));
+    if (liveSessionUnreadCount === 0) return;
+    const supabase = createClient();
+    supabase
+      .from('notifications')
+      .update({ is_read: true, read_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .eq('type', 'live_session_reminder')
+      .eq('is_read', false)
+      .then(() => reloadNotifs());
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, notifs.length]);
+  }, [pathname, liveSessionUnreadCount]);
 
   const headerPurple = true; // Always purple, matching Halo Learn style
   const { toggle: toggleClassSidebar } = useClassSidebar();
