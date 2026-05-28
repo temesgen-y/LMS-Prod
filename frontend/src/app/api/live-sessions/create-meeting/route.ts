@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import crypto from 'crypto';
 
 async function getZoomAccessToken(): Promise<string> {
@@ -89,9 +90,10 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase.from('users').select('role').eq('auth_user_id', user.id).single();
+  const admin = createAdminClient();
+  const { data: profile } = await admin.from('users').select('role').eq('auth_user_id', user.id).single();
   if (!profile || !['instructor', 'admin'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    return NextResponse.json({ error: 'Forbidden — role: ' + (profile?.role ?? 'not found') }, { status: 403 });
   }
 
   const { platform, title, scheduledAt, durationMins } = await req.json() as {
