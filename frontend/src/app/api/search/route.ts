@@ -165,14 +165,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── INSTRUCTOR ──────────────────────────────────────────────────────────
-  if (role === 'instructor' || role === 'admin') {
+  // ── INSTRUCTOR / DEPARTMENT_HEAD ────────────────────────────────────────
+  if (role === 'instructor' || role === 'admin' || role === 'department_head') {
     const { data: ciRows } = await supabase
       .from('course_instructors')
       .select('offering_id')
       .eq('instructor_id', userId);
     const offeringIds: string[] = (ciRows ?? []).map((r: any) => r.offering_id);
-    const filterByOffering = role === 'instructor' && offeringIds.length > 0;
+    const filterByOffering = (role === 'instructor' || role === 'department_head') && offeringIds.length > 0;
     const safeOfferingIds = offeringIds.length > 0 ? offeringIds : ['__none__'];
 
     // Assessments

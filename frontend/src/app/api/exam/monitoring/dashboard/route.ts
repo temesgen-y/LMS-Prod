@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest) {
   const instructorId = (userRow as any).id;
   const role = (userRow as any).role;
 
-  // Admin sees all; instructor sees only their courses
+  // Admin sees all; instructor/department_head sees only their courses
   let assessmentIds: string[] = [];
   const assessmentMap: Record<string, { title: string; type: string; offeringId: string }> = {};
 
