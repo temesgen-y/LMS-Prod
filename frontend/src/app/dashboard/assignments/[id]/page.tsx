@@ -268,7 +268,7 @@ export default function AssignmentSubmitPage() {
   const canSubmit        = !isOverdue || assignment.late_allowed;
   const alreadySubmitted = !!submission;
   const needsResubmit    = submission?.status === 'resubmit_required';
-  const isEditable       = canSubmit || needsResubmit;
+  const isEditable       = (!alreadySubmitted && canSubmit) || needsResubmit;
   const isGraded         = submission?.score != null;
 
   return (
@@ -609,7 +609,7 @@ export default function AssignmentSubmitPage() {
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v8H4Z" />
                     </svg>
                   )}
-                  {submitting ? 'Submitting…' : alreadySubmitted ? 'Resubmit' : 'Submit Assignment'}
+                  {submitting ? 'Submitting…' : needsResubmit ? 'Resubmit' : 'Submit Assignment'}
                 </button>
                 <p className="text-xs text-gray-400">
                   {pendingFiles.length > 0 ? `${pendingFiles.length} file(s) will be uploaded` : ''}
