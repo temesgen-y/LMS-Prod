@@ -704,19 +704,22 @@ export default function AssignmentSubmissionsPage() {
                       <p className="text-xs font-semibold text-gray-600 mb-3 uppercase tracking-wide">Grade Submission</p>
                       <div className="flex flex-col gap-3">
                         <div className="flex-shrink-0">
-                          <label className="block text-xs text-gray-500 mb-1">
-                            Score (max: {assignment.max_score})
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            Enter Mark / Score <span className="text-gray-400 font-normal">(out of {assignment.max_score})</span>
                           </label>
-                          <input
-                            type="number"
-                            min={0}
-                            max={assignment.max_score}
-                            step={0.5}
-                            value={sub.inputScore}
-                            onChange={e => updateField(sub.id, 'inputScore', e.target.value)}
-                            placeholder={`0–${assignment.max_score}`}
-                            className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4c1d95]"
-                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              min={0}
+                              max={assignment.max_score}
+                              step={0.5}
+                              value={sub.inputScore}
+                              onChange={e => updateField(sub.id, 'inputScore', e.target.value)}
+                              placeholder="e.g. 4"
+                              className="w-32 border-2 border-[#4c1d95]/30 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#4c1d95] focus:border-[#4c1d95]"
+                            />
+                            <span className="text-sm text-gray-400">/ {assignment.max_score}</span>
+                          </div>
                         </div>
                         <div className="flex-1">
                           <label className="block text-xs text-gray-500 mb-1">Overall Feedback (optional)</label>
