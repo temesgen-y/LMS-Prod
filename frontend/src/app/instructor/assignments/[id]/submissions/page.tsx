@@ -259,6 +259,19 @@ export default function AssignmentSubmissionsPage() {
         ? { ...s, saving: false, score: scoreNum, final_score: scoreNum, feedback: sub.inputFeedback.trim() || null, status: 'graded', annotations: sub.annotations }
         : s
     ));
+
+    // Advance to the next ungraded submission, or return to the dashboard when done
+    const nextUngraded = submissions.find(s => s.id !== sub.id && s.status !== 'graded');
+    if (nextUngraded) {
+      setExpandedId(nextUngraded.id);
+      setTimeout(() => {
+        document.getElementById(`sub-${nextUngraded.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
+    } else {
+      setExpandedId(null);
+      toast.success('All submissions graded!');
+      setTimeout(() => router.push('/instructor/dashboard'), 1000);
+    }
   };
 
   const requestResubmit = async (sub: Submission) => {
@@ -484,6 +497,7 @@ export default function AssignmentSubmissionsPage() {
             return (
               <div
                 key={sub.id}
+                id={`sub-${sub.id}`}
                 className={`bg-white border rounded-xl shadow-sm overflow-hidden ${
                   isGraded ? 'border-green-200' : 'border-amber-200'
                 }`}
