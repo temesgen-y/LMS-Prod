@@ -243,13 +243,16 @@ export default function AssignmentSubmissionsPage() {
       toast.error('Grade saved to submission but failed to update gradebook: ' + (err?.message ?? err));
     }
 
-    const supabase2 = createClient();
-    await supabase2.from('notifications').insert({
-      user_id: sub.student_id,
-      type: 'assignment_graded',
-      title: 'Assignment Graded',
-      body: `Your submission for "${assignment.title}" has been graded: ${scoreNum}/${assignment.max_score}`,
-    });
+    // Best-effort notification — must never block or break the grading flow
+    try {
+      const supabase2 = createClient();
+      await supabase2.from('notifications').insert({
+        user_id: sub.student_id,
+        type: 'submission_graded',
+        title: 'Assignment Graded',
+        body: `Your submission for "${assignment.title}" has been graded: ${scoreNum}/${assignment.max_score}`,
+      });
+    } catch { /* ignore notification failures */ }
 
     setSubmissions(prev => prev.map(s =>
       s.id === sub.id
@@ -272,12 +275,15 @@ export default function AssignmentSubmissionsPage() {
       return;
     }
 
-    await supabase.from('notifications').insert({
-      user_id: sub.student_id,
-      type: 'assignment_resubmit',
-      title: 'Resubmission Required',
-      body: `Your instructor has requested a resubmission for "${assignment?.title}".`,
-    });
+    // Best-effort notification — must never block or break the resubmit flow
+    try {
+      await supabase.from('notifications').insert({
+        user_id: sub.student_id,
+        type: 'assignment_resubmit',
+        title: 'Resubmission Required',
+        body: `Your instructor has requested a resubmission for "${assignment?.title}".`,
+      });
+    } catch { /* ignore notification failures */ }
 
     setSubmissions(prev => prev.map(s =>
       s.id === sub.id ? { ...s, requestingResubmit: false, status: 'resubmit_required' } : s
