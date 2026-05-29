@@ -753,7 +753,7 @@ export default function AssignmentSubmitPage() {
               ) : (
                 <div className="space-y-3">
                   {myReports.map(report => {
-                    const providerLabel = report.provider === 'copyleaks' ? 'Copyleaks (Internet)' : report.provider === 'turnitin' ? 'Turnitin' : 'Native (Peer)';
+                    const providerLabel = report.provider === 'copyleaks' ? 'Copyleaks (Internet)' : 'Native (Peer)';
                     const providerIcon = report.provider === 'native'
                       ? <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-violet-500"><path d="M2 6.342a3.375 3.375 0 0 1 6-.003 3.375 3.375 0 0 1 6 .003C14.43 9.647 11 13.5 8 13.5S1.57 9.647 2 6.342Z"/></svg>
                       : <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-blue-500"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM12.735 14c.618 0 1.093-.561.872-1.139a6.002 6.002 0 0 0-11.215 0c-.22.578.254 1.139.872 1.139h9.47Z"/></svg>;

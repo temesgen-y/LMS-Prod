@@ -59,7 +59,7 @@ type Submission = {
   saving: boolean;
   plagReport: PlagiarismReport | null;
   plagChecking: boolean;
-  plagProvider: 'native' | 'copyleaks' | 'turnitin';
+  plagProvider: 'native' | 'copyleaks';
   showPlagPanel: boolean;
   requestingResubmit: boolean;
 };
@@ -306,11 +306,11 @@ export default function AssignmentSubmissionsPage() {
       }
 
       if (data.message) {
-        // Turnitin async — set pending state
-        toast.info('Turnitin analysis submitted. Results will appear when ready.');
+        // Async provider (Copyleaks) — set pending state
+        toast.info(data.message);
         setSubmissions(prev => prev.map(s =>
           s.id === subId
-            ? { ...s, plagChecking: false, plagReport: { id: data.report_id, status: 'pending', similarity_pct: null, source_matches: null, provider: 'turnitin', provider_report_url: null, error_message: null, completed_at: null } }
+            ? { ...s, plagChecking: false, plagReport: { id: data.report_id, status: 'pending', similarity_pct: null, source_matches: null, provider: sub.plagProvider, provider_report_url: null, error_message: null, completed_at: null } }
             : s
         ));
       } else {
@@ -582,13 +582,12 @@ export default function AssignmentSubmissionsPage() {
                           <select
                             value={sub.plagProvider}
                             onChange={e => setSubmissions(prev => prev.map(s =>
-                              s.id === sub.id ? { ...s, plagProvider: e.target.value as 'native' | 'copyleaks' | 'turnitin' } : s
+                              s.id === sub.id ? { ...s, plagProvider: e.target.value as 'native' | 'copyleaks' } : s
                             ))}
                             className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-violet-400"
                           >
                             <option value="native">Native (n-gram)</option>
-                            <option value="copyleaks">Copyleaks</option>
-                            <option value="turnitin">Turnitin TCA</option>
+                            <option value="copyleaks">Copyleaks (Internet)</option>
                           </select>
                           <button
                             onClick={() => checkPlagiarism(sub.id)}
@@ -626,7 +625,7 @@ export default function AssignmentSubmissionsPage() {
                         <p className="text-xs text-gray-500 animate-pulse">Processing…</p>
                       )}
                       {sub.plagReport?.status === 'pending' && (
-                        <p className="text-xs text-gray-500">Turnitin analysis queued. Refresh to see results.</p>
+                        <p className="text-xs text-gray-500">Copyleaks scan in progress. Refresh in a few minutes to see results.</p>
                       )}
                       {sub.plagReport?.status === 'failed' && (
                         <p className="text-xs text-red-500">{sub.plagReport.error_message ?? 'Check failed.'}</p>
@@ -636,9 +635,7 @@ export default function AssignmentSubmissionsPage() {
                           <div className="flex items-center gap-3 mb-1">
                             <SimilarityBadge pct={simPct} />
                             <span className="text-xs text-gray-500">
-                              {sub.plagReport?.provider === 'turnitin' ? 'via Turnitin'
-                                : sub.plagReport?.provider === 'copyleaks' ? 'via Copyleaks'
-                                : 'native n-gram'}
+                              {sub.plagReport?.provider === 'copyleaks' ? 'via Copyleaks (Internet)' : 'native n-gram'}
                             </span>
                           </div>
                           {/* Bar */}
