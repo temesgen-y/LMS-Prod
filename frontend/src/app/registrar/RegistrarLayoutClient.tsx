@@ -63,7 +63,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/registrar/calendar', label: 'Academic Calendar' },
       { href: '/registrar/prerequisites', label: 'Prerequisites' },
-      { href: '/registrar/certificates', label: 'Certificates' },
+      { href: '/registrar/graduation', label: 'Graduation Certificates' },
     ],
   },
   {

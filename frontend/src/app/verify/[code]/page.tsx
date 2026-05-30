@@ -1,8 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { degreeTitle } from '@/lib/certificates/graduation';
 
 export const dynamic = 'force-dynamic';
 
 type CertData = {
+  kind: 'course' | 'graduation';
   unique_code: string;
   issued_at: string;
   expires_at: string | null;
@@ -10,8 +12,10 @@ type CertData = {
   revoke_reason: string | null;
   pdf_url: string | null;
   studentName: string;
-  courseCode: string;
-  courseTitle: string;
+  /** small label below the title (course code, or classification + CGPA) */
+  subtitle: string;
+  /** main award title (course title, or "<Degree> in <Program>") */
+  title: string;
 };
 
 export default async function VerifyCertificatePage({
@@ -38,6 +42,7 @@ export default async function VerifyCertificatePage({
   if (!error && data) {
     const d = data as any;
     cert = {
+      kind:          'course',
       unique_code:   d.unique_code,
       issued_at:     d.issued_at,
       expires_at:    d.expires_at,
@@ -45,9 +50,41 @@ export default async function VerifyCertificatePage({
       revoke_reason: d.revoke_reason,
       pdf_url:       d.pdf_url,
       studentName:   `${d.users.first_name} ${d.users.last_name}`,
-      courseCode:    d.course_offerings?.courses?.code  ?? '—',
-      courseTitle:   d.course_offerings?.courses?.title ?? '—',
+      subtitle:      d.course_offerings?.courses?.code  ?? '—',
+      title:         d.course_offerings?.courses?.title ?? '—',
     };
+  }
+
+  // Fall back to graduation (degree) certificates.
+  if (!cert) {
+    const { data: gradData } = await admin
+      .from('graduation_certificates')
+      .select(`
+        unique_code, issued_at, expires_at, revoked_at, revoke_reason, pdf_url,
+        classification, cgpa,
+        users!graduation_certificates_student_id_fkey(first_name, last_name),
+        academic_programs!graduation_certificates_program_id_fkey(name, degree_level)
+      `)
+      .eq('unique_code', code)
+      .maybeSingle();
+
+    if (gradData) {
+      const d = gradData as any;
+      const program = d.academic_programs;
+      const classBits = [d.classification, d.cgpa != null ? `CGPA ${Number(d.cgpa).toFixed(2)}` : null].filter(Boolean);
+      cert = {
+        kind:          'graduation',
+        unique_code:   d.unique_code,
+        issued_at:     d.issued_at,
+        expires_at:    d.expires_at,
+        revoked_at:    d.revoked_at,
+        revoke_reason: d.revoke_reason,
+        pdf_url:       d.pdf_url,
+        studentName:   `${d.users.first_name} ${d.users.last_name}`,
+        subtitle:      classBits.join(' · ') || '—',
+        title:         program ? `${degreeTitle(program.degree_level)} in ${program.name}` : 'Degree',
+      };
+    }
   }
 
   const isRevoked  = !!cert?.revoked_at;
@@ -134,9 +171,11 @@ export default async function VerifyCertificatePage({
                 </div>
 
                 <div>
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">Course completed</p>
-                  <p className="font-semibold text-gray-800 leading-snug">{cert.courseTitle}</p>
-                  <p className="text-sm text-gray-400 font-mono mt-0.5">{cert.courseCode}</p>
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">
+                    {cert.kind === 'graduation' ? 'Degree awarded' : 'Course completed'}
+                  </p>
+                  <p className="font-semibold text-gray-800 leading-snug">{cert.title}</p>
+                  <p className="text-sm text-gray-400 mt-0.5">{cert.subtitle}</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

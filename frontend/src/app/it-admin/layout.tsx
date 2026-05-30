@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getUserRoleNames } from '@/lib/auth/get-user-roles';
 import { getHighestRole, type RoleName } from '@/types/auth';
+import ItAdminShell from '@/components/it-admin/ItAdminShell';
 
 export default async function ItAdminLayout({
   children,
@@ -28,5 +29,5 @@ export default async function ItAdminLayout({
     redirect('/unauthorized');
   }
 
-  return <>{children}</>;
+  return <ItAdminShell>{children}</ItAdminShell>;
 }

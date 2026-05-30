@@ -61,13 +61,14 @@ export default function RegistrarDashboardPage() {
         setFirstName((currentUser as any).first_name || 'Registrar');
 
         // Stat counts
-        const [pendingReg, pendingAddDrop, pendingWithdrawal, pendingReadmission, pendingClearance, totalStudents] = await Promise.all([
+        const [pendingReg, pendingAddDrop, pendingWithdrawal, pendingReadmission, pendingClearance, totalStudents, gradRes] = await Promise.all([
           supabase.from('registration_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').eq('request_type', 'registration'),
           supabase.from('registration_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending').in('request_type', ['add', 'drop']),
           supabase.from('withdrawal_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
           supabase.from('readmission_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
           supabase.from('clearance_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
           supabase.from('users').select('id', { count: 'exact', head: true }).eq('role', 'student').eq('status', 'active'),
+          fetch('/api/registrar/graduation/eligible').then(r => r.ok ? r.json() : { summary: { eligible: 0 } }).catch(() => ({ summary: { eligible: 0 } })),
         ]);
 
         setStats([
@@ -77,6 +78,7 @@ export default function RegistrarDashboardPage() {
           { label: 'Pending Readmissions', count: pendingReadmission.count ?? 0, bg: 'bg-green-50', href: '/registrar/readmissions' },
           { label: 'Pending Clearances', count: pendingClearance.count ?? 0, bg: 'bg-teal-50', href: '/registrar/clearance' },
           { label: 'Total Active Students', count: totalStudents.count ?? 0, bg: 'bg-rose-50', href: '/registrar/students' },
+          { label: 'Eligible for Graduation', count: gradRes?.summary?.eligible ?? 0, bg: 'bg-indigo-50', href: '/registrar/graduation' },
         ]);
 
         // Recent activity
